@@ -218,16 +218,31 @@ class RegistrationHandler:
         oms = user_data.get('oms')
         gender = user_data.get('gender')
 
-        try:
-            async with asyncio.timeout(10):
-                success = db.register_user(user_id, chat_id, fio, phone, birth_date, snils, oms, gender)
-        except asyncio.TimeoutError:
-            log_system_event("db_timeout", user_id=user_id)
-            await bot_instance.send_message(
-                chat_id=chat_id,
-                text="⏳ Сервер перегружен, попробуйте позже"
-            )
-            return
+        # Вариант A: уже зарегистрированный — обновляем данные вместо INSERT
+        if db.is_user_registered(user_id):
+            try:
+                async with asyncio.timeout(10):
+                    success = db.update_user_data(user_id, fio, birth_date, snils, oms, gender)
+                    if success:
+                        db.update_last_chat_id(user_id, chat_id)
+            except asyncio.TimeoutError:
+                log_system_event("db_timeout", user_id=user_id)
+                await bot_instance.send_message(
+                    chat_id=chat_id,
+                    text="⏳ Сервер перегружен, попробуйте позже"
+                )
+                return
+        else:
+            try:
+                async with asyncio.timeout(10):
+                    success = db.register_user(user_id, chat_id, fio, phone, birth_date, snils, oms, gender)
+            except asyncio.TimeoutError:
+                log_system_event("db_timeout", user_id=user_id)
+                await bot_instance.send_message(
+                    chat_id=chat_id,
+                    text="⏳ Сервер перегружен, попробуйте позже"
+                )
+                return
 
         if success:
             self.user_states.pop(user_id, None)
@@ -491,11 +506,17 @@ class RegistrationHandler:
         """Обработка подтверждения данных"""
         log_user_event(user_id, "user_confirmed_registration")
         user_data = self.user_states.get(user_id, {}).get('data', {})
+        required_keys = ['fio', 'birth_date', 'phone', 'snils', 'oms', 'gender']
 
-        if user_data and all(key in user_data for key in ['fio', 'birth_date', 'phone', 'snils', 'oms', 'gender']):
+        # Вариант B: уже зарегистрированный пользователь с пустыми/неполными данными — сразу главное меню
+        if db.is_user_registered(user_id) and (not user_data or not all(key in user_data for key in required_keys)):
+            self.user_states.pop(user_id, None)
+            return db.get_user_greeting(user_id)
+
+        if user_data and all(key in user_data for key in required_keys):
             return await self.complete_registration(bot_instance, user_id, chat_id, user_data)
         else:
-            missing_fields = [key for key in ['fio', 'birth_date', 'phone', 'snils', 'oms', 'gender'] if key not in user_data]
+            missing_fields = [key for key in required_keys if key not in user_data]
             log_data_event(user_id, "incomplete_data_on_confirmation", missing=missing_fields)
             await bot_instance.send_message(chat_id=chat_id,
                                             text="❌ Не все данные заполнены. Начинаем регистрацию заново.")
