@@ -80,6 +80,30 @@ def format_datetime_russian(dt: datetime) -> tuple[str, str]:
     return date_str, time_str
 
 
+def fio_to_short(fio: str) -> str:
+    """
+    Преобразование полного ФИО в краткий вид «Фамилия И.О.»
+
+    Args:
+        fio: ФИО в формате "Фамилия Имя Отчество"
+
+    Returns:
+        Краткий вид, например "Иванов С.Б." или "Иванов С." при отсутствии отчества
+    """
+    if not fio or not fio.strip():
+        return fio
+    parts = fio.split()
+    if len(parts) == 1:
+        return parts[0]
+    # Фамилия И. или Фамилия И.О.
+    initial_name = (parts[1][0] + ".") if parts[1] else ""
+    initial_mid = (parts[2][0] + ".") if len(parts) > 2 and parts[2] else ""
+    short = parts[0]
+    if initial_name:
+        short += " " + initial_name + initial_mid
+    return short
+
+
 def get_patient_first_name(fio: str) -> str:
     """
     Извлечение имени из ФИО

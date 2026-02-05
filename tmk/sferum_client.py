@@ -5,11 +5,12 @@ import os
 import asyncio
 import aiohttp
 import json
+from datetime import datetime
 from typing import Optional, Dict, List, Any
 from dotenv import load_dotenv
 
 from logging_config import log_system_event
-from tmk.utils import normalize_phone
+from tmk.utils import normalize_phone, fio_to_short
 
 load_dotenv()
 
@@ -28,19 +29,26 @@ class SferumClient:
     @staticmethod
     async def create_telemedicine_chat(
         doctor_fio: str,
-        patient_fio: str
+        patient_fio: str,
+        schedule_date: datetime,
     ) -> Optional[Dict[str, any]]:
         """
         Создание чата телемедицинской консультации
+
+        Название чата: ТМК <yyyy-mm-dd H:MM> врач Иванов С.Б. - пациент Петров А.В.
         
         Args:
-            doctor_fio: ФИО врача
-            patient_fio: ФИО пациента
+            doctor_fio: ФИО врача (полное)
+            patient_fio: ФИО пациента (полное)
+            schedule_date: Дата и время консультации (для заголовка, ожидается в московском времени)
             
         Returns:
             Словарь с chat_id и invite_link или None при ошибке
         """
-        chat_title = f"Телемедконсультация: врач {doctor_fio} – пациент {patient_fio}"
+        date_time_str = schedule_date.strftime("%Y-%m-%d %H:%M")
+        short_doctor = fio_to_short(doctor_fio)
+        short_patient = fio_to_short(patient_fio)
+        chat_title = f"ТМК <{date_time_str}> врач {short_doctor} - пациент {short_patient}"
         
         data = {
             "access_token": SFERUM_ACCESS_TOKEN,

@@ -193,7 +193,8 @@ def create_tmk_app(bot, tmk_database: TelemedDatabase, reminder_svc: ReminderSer
             
             chat_data = await SferumClient.create_telemedicine_chat(
                 doctor_fio=doctor_fio,
-                patient_fio=patient_fio
+                patient_fio=patient_fio,
+                schedule_date=schedule_date,
             )
             
             if not chat_data:
