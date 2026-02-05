@@ -152,6 +152,21 @@ def build_consent_confirmation_message() -> str:
     return message
 
 
+def build_consent_after_consultation_message() -> str:
+    """
+    Сообщение при нажатии "Согласен" после времени консультации.
+    
+    Returns:
+        Текст сообщения
+    """
+    message = """Ваше согласие зафиксировано.
+
+Обратите внимание: время консультации уже прошло. При необходимости запишитесь на приём заново.
+Отменить или уточнить запись можно по телефону 122."""
+    
+    return message
+
+
 def build_cancellation_message(session: Dict[str, Any]) -> str:
     """
     Сообщение об отмене консультации

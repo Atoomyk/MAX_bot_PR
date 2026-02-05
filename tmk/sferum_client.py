@@ -35,7 +35,7 @@ class SferumClient:
         """
         Создание чата телемедицинской консультации
 
-        Название чата: ТМК <yyyy-mm-dd H:MM> врач Иванов С.Б. - пациент Петров А.В.
+        Название чата: ТМК yyyy-mm-dd H:MM врач Иванов С.Б. - пациент Петров А.В.
         
         Args:
             doctor_fio: ФИО врача (полное)
@@ -48,7 +48,7 @@ class SferumClient:
         date_time_str = schedule_date.strftime("%Y-%m-%d %H:%M")
         short_doctor = fio_to_short(doctor_fio)
         short_patient = fio_to_short(patient_fio)
-        chat_title = f"ТМК <{date_time_str}> врач {short_doctor} - пациент {short_patient}"
+        chat_title = f"ТМК {date_time_str} врач {short_doctor} - пациент {short_patient}"
         
         data = {
             "access_token": SFERUM_ACCESS_TOKEN,

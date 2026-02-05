@@ -7,7 +7,11 @@ from maxapi.utils.inline_keyboard import AttachmentType
 
 from logging_config import log_user_event, log_system_event
 from tmk.database import TelemedDatabase
-from tmk.message_builder import build_late_consent_message, build_consent_confirmation_message
+from tmk.message_builder import (
+    build_late_consent_message,
+    build_consent_confirmation_message,
+    build_consent_after_consultation_message,
+)
 from tmk.utils import MOSCOW_TZ
 from user_database import db as user_db
 
@@ -62,17 +66,15 @@ async def handle_tmk_consent(event: MessageCallback, bot, db: TelemedDatabase, r
             )
             return True
         
-        # Проверяем: не прошла ли уже консультация
         now = datetime.now(MOSCOW_TZ)
         schedule_date = session['schedule_date']
-        
-        if now > schedule_date:
+        after_consultation = now > schedule_date
+        if after_consultation:
             log_system_event(
                 "tmk_handlers",
                 "consent_after_consultation",
                 session_id=session_id
             )
-            return True
         
         # Проверяем: не было ли уже согласия
         if session['consent_at'] is not None:
@@ -106,11 +108,14 @@ async def handle_tmk_consent(event: MessageCallback, bot, db: TelemedDatabase, r
             consent_at=consent_time.isoformat()
         )
 
-        # Надёжный вариант: после согласия планируем немедленное добавление участников в телемед-чат.
-        # Это защищает сценарий «согласие после 5 минут», когда плановое событие members_add могло
-        # уже "проскочить" как просроченное.
-        if reminder_service is not None:
-            send_at = datetime.now(MOSCOW_TZ) + timedelta(seconds=5)
+        # После согласия планируем добавление участников в чат не ранее чем за 15 минут до консультации.
+        if not after_consultation and reminder_service is not None:
+            now_consent = datetime.now(MOSCOW_TZ)
+            earliest_add = schedule_date - timedelta(minutes=15)
+            if now_consent < earliest_add:
+                send_at = earliest_add
+            else:
+                send_at = now_consent + timedelta(seconds=5)
             try:
                 await reminder_service.add_reminder(session_id, 'members_add', send_at)
                 log_system_event(
@@ -126,6 +131,12 @@ async def handle_tmk_consent(event: MessageCallback, bot, db: TelemedDatabase, r
                     session_id=session_id,
                     error=str(e),
                 )
+        elif after_consultation:
+            log_system_event(
+                "tmk_handlers",
+                "members_add_skipped_after_consultation",
+                session_id=session_id,
+            )
         else:
             log_system_event(
                 "tmk_handlers",
@@ -150,7 +161,11 @@ async def handle_tmk_consent(event: MessageCallback, bot, db: TelemedDatabase, r
                 payload=buttons_payload
             )
             
-            confirmation_text = build_consent_confirmation_message()
+            confirmation_text = (
+                build_consent_after_consultation_message()
+                if after_consultation
+                else build_consent_confirmation_message()
+            )
             
             await bot.send_message(
                 chat_id=chat_id,
