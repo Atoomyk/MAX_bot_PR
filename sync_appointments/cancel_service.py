@@ -30,7 +30,7 @@ class CancelService:
     # HTTP-заголовки можно дополнить (авторизация, токены и т.д.)
     BASE_HEADERS: Dict[str, str] = {
         "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": "CancelAppointment"  # раскомментируйте, если сервер этого требует
+        "SOAPAction": "CancelAppointment"  # раскомментировать, если сервер этого требует
     }
 
     def __init__(
