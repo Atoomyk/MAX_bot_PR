@@ -28,27 +28,35 @@ class SferumClient:
     
     @staticmethod
     async def create_telemedicine_chat(
-        doctor_fio: str,
         patient_fio: str,
         schedule_date: datetime,
+        doctor_fio: Optional[str] = None,
+        position_label: Optional[str] = None,
     ) -> Optional[Dict[str, any]]:
         """
-        Создание чата телемедицинской консультации
+        Создание чата телемедицинской консультации.
 
-        Название чата: ТМК yyyy-mm-dd H:MM врач Иванов С.Б. - пациент Петров А.В.
-        
+        Название чата:
+        - по врачу: ТМК yyyy-mm-dd H:MM врач Иванов С.Б. - пациент Петров А.В.
+        - по кабинету: ТМК yyyy-mm-dd H:MM Врач-терапевт - пациент Петров А.В. (без слова «врач»)
+
         Args:
-            doctor_fio: ФИО врача (полное)
             patient_fio: ФИО пациента (полное)
             schedule_date: Дата и время консультации (для заголовка, ожидается в московском времени)
-            
+            doctor_fio: ФИО врача (полное); задаётся при варианте «врач»
+            position_label: Должность из кабинета (room.position); задаётся при варианте «кабинет».
+                Ровно один из doctor_fio и position_label должен быть задан.
+
         Returns:
             Словарь с chat_id и invite_link или None при ошибке
         """
         date_time_str = schedule_date.strftime("%Y-%m-%d %H:%M")
-        short_doctor = fio_to_short(doctor_fio)
         short_patient = fio_to_short(patient_fio)
-        chat_title = f"ТМК {date_time_str} врач {short_doctor} - пациент {short_patient}"
+        if position_label is not None:
+            chat_title = f"ТМК {date_time_str} {position_label} - пациент {short_patient}"
+        else:
+            short_doctor = fio_to_short(doctor_fio or "")
+            chat_title = f"ТМК {date_time_str} врач {short_doctor} - пациент {short_patient}"
         
         data = {
             "access_token": SFERUM_ACCESS_TOKEN,

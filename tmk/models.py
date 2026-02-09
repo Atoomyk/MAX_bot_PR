@@ -3,7 +3,7 @@ Pydantic модели для API интеграции с МИС
 """
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
 
@@ -76,22 +76,44 @@ class ClinicData(BaseModel):
     phone: str = Field(..., description="Телефон МО")
 
 
+class RoomData(BaseModel):
+    """Данные кабинета (вариант запроса без врача)"""
+    name: str = Field(..., description="Название кабинета")
+    id: str = Field(..., description="ID кабинета")
+    specialization: str = Field(..., description="Специализация")
+    position: str = Field(..., description="Должность (используется в названии ТМК)")
+
+
 class TelemedCreateRequest(BaseModel):
-    """Запрос на создание ТМК от МИС"""
+    """Запрос на создание ТМК от МИС. Передаётся либо doctor, либо room (ровно одно)."""
     externalId: str = Field(..., description="Внешний ID консультации из МИС")
     scheduleDate: str = Field(..., description="Дата и время консультации")
-    doctor: DoctorData = Field(..., description="Данные врача")
+    doctor: Optional[DoctorData] = Field(None, description="Данные врача")
+    room: Optional[RoomData] = Field(None, description="Данные кабинета (вместо врача)")
     patient: PatientData = Field(..., description="Данные пациента")
     clinic: ClinicData = Field(..., description="Данные клиники")
     status: StatusEnum = Field(..., description="Статус консультации")
     payMethod: PayMethodEnum = Field(..., description="Метод оплаты")
 
+    @model_validator(mode="after")
+    def doctor_or_room_exactly_one(self):
+        if (self.doctor is None) == (self.room is None):
+            raise ValueError("Должно быть указано ровно одно: doctor или room")
+        return self
+
 
 class TelemedUpdateRequest(BaseModel):
-    """Запрос на обновление/отмену ТМК от МИС"""
+    """Запрос на обновление/отмену ТМК от МИС. Передаётся либо doctor, либо room (тот же тип, что при создании)."""
     scheduleDate: str = Field(..., description="Дата и время консультации")
     status: StatusEnum = Field(..., description="Новый статус консультации")
-    doctor: DoctorData = Field(..., description="Данные врача")
+    doctor: Optional[DoctorData] = Field(None, description="Данные врача")
+    room: Optional[RoomData] = Field(None, description="Данные кабинета (вместо врача)")
+
+    @model_validator(mode="after")
+    def doctor_or_room_exactly_one(self):
+        if (self.doctor is None) == (self.room is None):
+            raise ValueError("Должно быть указано ровно одно: doctor или room")
+        return self
 
 
 class TelemedCreateResponse(BaseModel):

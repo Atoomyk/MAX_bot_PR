@@ -188,15 +188,29 @@ def create_tmk_app(bot, tmk_database: TelemedDatabase, reminder_svc: ReminderSer
                 )
             
             # 6. Создание чата через MAX API (только если пациент найден)
-            doctor_fio = request.doctor.get_full_name()
             patient_fio = request.patient.get_full_name()
-            
-            chat_data = await SferumClient.create_telemedicine_chat(
-                doctor_fio=doctor_fio,
-                patient_fio=patient_fio,
-                schedule_date=schedule_date,
-            )
-            
+            if request.doctor is not None:
+                doctor_fio = request.doctor.get_full_name()
+                chat_data = await SferumClient.create_telemedicine_chat(
+                    patient_fio=patient_fio,
+                    schedule_date=schedule_date,
+                    doctor_fio=doctor_fio,
+                )
+                session_doctor_fio = doctor_fio
+                session_doctor_snils = request.doctor.SNILS
+                session_doctor_specialization = request.doctor.specialization
+                session_doctor_position = request.doctor.position
+            else:
+                chat_data = await SferumClient.create_telemedicine_chat(
+                    patient_fio=patient_fio,
+                    schedule_date=schedule_date,
+                    position_label=request.room.position,
+                )
+                session_doctor_fio = ""
+                session_doctor_snils = None
+                session_doctor_specialization = request.room.specialization
+                session_doctor_position = request.room.position
+
             if not chat_data:
                 log_system_event(
                     "tmk_api",
@@ -225,10 +239,10 @@ def create_tmk_app(bot, tmk_database: TelemedDatabase, reminder_svc: ReminderSer
                 "patient_oms_series": request.patient.OMS.series,
                 "patient_birth_date": request.patient.birthDate,
                 "patient_sex": request.patient.sex.value,
-                "doctor_fio": doctor_fio,
-                "doctor_snils": request.doctor.SNILS,
-                "doctor_specialization": request.doctor.specialization,
-                "doctor_position": request.doctor.position,
+                "doctor_fio": session_doctor_fio,
+                "doctor_snils": session_doctor_snils,
+                "doctor_specialization": session_doctor_specialization,
+                "doctor_position": session_doctor_position,
                 "clinic_name": request.clinic.name,
                 "clinic_address": request.clinic.address,
                 "clinic_mo_oid": request.clinic.MO_OID,

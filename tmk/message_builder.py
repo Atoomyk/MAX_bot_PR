@@ -6,6 +6,18 @@ from typing import Dict, Any
 from tmk.utils import format_datetime_russian, get_patient_first_name
 
 
+def _doctor_or_position_block(session: Dict[str, Any]) -> str:
+    """
+    Блок «Врач» или «Должность» + «Специальность» для сообщений.
+    Для варианта по кабинету (doctor_fio пустой) — только Должность и Специальность.
+    """
+    spec = session.get("doctor_specialization") or ""
+    pos = session.get("doctor_position") or ""
+    if session.get("doctor_fio"):
+        return f"Врач: {session['doctor_fio']}\nСпециальность: {spec}"
+    return f"Должность: {pos}\nСпециальность: {spec}"
+
+
 def build_initial_message(session: Dict[str, Any]) -> str:
     """
     Первое сообщение при создании ТМК с запросом согласия
@@ -17,12 +29,11 @@ def build_initial_message(session: Dict[str, Any]) -> str:
         Текст сообщения
     """
     date_str, time_str = format_datetime_russian(session['schedule_date'])
-    
+    block = _doctor_or_position_block(session)
     message = f"""Вы записаны на телемедицинскую консультацию.
 
 МО: {session['clinic_name']}
-Врач: {session['doctor_fio']}
-Специальность: {session['doctor_specialization']}
+{block}
 Дата: {date_str}
 Время: {time_str} (Московское время)
 
@@ -42,12 +53,11 @@ def build_reminder_24h_without_consent(session: Dict[str, Any]) -> str:
         Текст сообщения
     """
     date_str, time_str = format_datetime_russian(session['schedule_date'])
-    
+    block = _doctor_or_position_block(session)
     message = f"""Вы записаны на телемедицинскую консультацию.
 
 МО: {session['clinic_name']}
-Врач: {session['doctor_fio']}
-Специальность: {session['doctor_specialization']}
+{block}
 Дата: {date_str}
 Время: {time_str} (Московское время)
 
@@ -67,12 +77,11 @@ def build_reminder_24h_with_consent(session: Dict[str, Any]) -> str:
         Текст сообщения
     """
     date_str, time_str = format_datetime_russian(session['schedule_date'])
-    
+    block = _doctor_or_position_block(session)
     message = f"""Вы записаны на телемедицинскую консультацию.
 
 МО: {session['clinic_name']}
-Врач: {session['doctor_fio']}
-Специальность: {session['doctor_specialization']}
+{block}
 Дата: {date_str}
 Время: {time_str} (Московское время)
 
@@ -179,11 +188,11 @@ def build_cancellation_message(session: Dict[str, Any]) -> str:
     """
     patient_name = get_patient_first_name(session['patient_fio'])
     date_str, time_str = format_datetime_russian(session['schedule_date'])
-    
+    block = _doctor_or_position_block(session)
     message = f"""Уважаемый {patient_name}, телемедконсультация отменена.
 
 МО: {session['clinic_name']}
-Врач: {session['doctor_fio']}
+{block}
 Дата: {date_str}
 Время: {time_str} (Московское время)
 
