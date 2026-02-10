@@ -614,16 +614,7 @@ class AppointmentsDatabase:
                     'success': False,
                     'error': 'Запись уже отменена'
                 }
-
-            # Проверяем, прошло ли более 3 часов с момента создания (если не force)
-            if not force and created_at:
-                time_diff = datetime.now() - created_at
-                if time_diff.total_seconds() > 3 * 3600:  # 3 часа в секундах
-                    return {
-                        'success': False,
-                        'error': 'Нельзя отменить запись, если прошло более 3 часов с момента создания'
-                    }
-
+            
             # Обновляем запись
             update_query = """
             UPDATE appointments 

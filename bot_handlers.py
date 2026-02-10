@@ -238,19 +238,6 @@ async def message_callback(event: MessageCallback):
                 )
                 return
             
-            # Проверяем, прошло ли более 3 часов
-            if appointment['created_at']:
-                from datetime import datetime, timedelta
-                time_diff = datetime.now() - appointment['created_at']
-                if time_diff.total_seconds() > 3 * 3600:
-                    log_user_event(user_id, "appointment_cancel_error", 
-                                 error="time_limit_exceeded", appointment_id=appointment_id)
-                    await event.bot.send_message(
-                        chat_id=chat_id,
-                        text="❌ Нельзя отменить запись, если прошло более 3 часов с момента создания."
-                    )
-                    return
-            
             # Показываем подтверждение
             log_user_event(user_id, "appointment_cancel_confirmation_shown", appointment_id=appointment_id)
             
@@ -280,8 +267,7 @@ async def message_callback(event: MessageCallback):
             await event.bot.send_message(
                 chat_id=chat_id,
                 text="⚠️ Вы подтверждаете отмену записи?\n\n"
-                     "При нажатии кнопки «Да», запись будет отменена без возможности восстановления.\n\n"
-                     "Запись можно отменить в течение 3 часов.",
+                     "При нажатии кнопки «Да», запись будет отменена без возможности восстановления.",
                 attachments=[keyboard]
             )
             return
@@ -337,19 +323,6 @@ async def message_callback(event: MessageCallback):
                     text="ℹ️ Эта запись уже отменена."
                 )
                 return
-
-            # Простейшая проверка 3 часов по сохраненному времени создания
-            if appointment_info.get('created_at'):
-                from datetime import datetime, timedelta
-                time_diff = datetime.now() - appointment_info['created_at']
-                if time_diff.total_seconds() > 3 * 3600:
-                    log_user_event(user_id, "appointment_cancel_error",
-                                 error="time_limit_exceeded", appointment_id=appointment_id)
-                    await event.bot.send_message(
-                        chat_id=chat_id,
-                        text="❌ Нельзя отменить запись, если прошло более 3 часов с момента создания."
-                    )
-                    return
 
             appointment_data = appointment_info.get('data') or {}
             book_id_mis = appointment_data.get('Book_Id_Mis')
