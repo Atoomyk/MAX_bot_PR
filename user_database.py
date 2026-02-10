@@ -798,9 +798,25 @@ class UserDatabase:
         except psycopg2.Error:
             return None
 
-    def validate_fio(self, fio: str) -> bool:
+    @staticmethod
+    def normalize_fio(fio: str) -> str:
+        """Приводит каждое слово ФИО к формату «Слово» (первая заглавная, остальные строчные)."""
+        if not fio or not fio.strip():
+            return fio
         fio_cleaned = ' '.join(fio.split())
-        return bool(re.match(r"^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)? [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+$", fio_cleaned))
+        words = fio_cleaned.split()
+        result = []
+        for word in words:
+            if '-' in word:
+                parts = [p.capitalize() if p else '' for p in word.split('-')]
+                result.append('-'.join(parts))
+            else:
+                result.append(word.capitalize())
+        return ' '.join(result)
+
+    def validate_fio(self, fio: str) -> bool:
+        fio_normalized = self.normalize_fio(fio)
+        return bool(re.match(r"^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)? [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+$", fio_normalized))
 
     def validate_phone(self, phone: str) -> bool:
         phone_cleaned = re.sub(r'[\s\-]', '', phone)
@@ -867,6 +883,7 @@ class UserDatabase:
         return base_valid
 
     def register_user(self, user_id: int, chat_id: int, fio: str, phone: str, birth_date: str, snils: str = None, oms: str = None, gender: str = None) -> bool:
+        fio = self.normalize_fio(fio)
         if not self.validate_user_data(fio, phone, birth_date, snils, oms, gender):
             return False
 
@@ -903,6 +920,7 @@ class UserDatabase:
         try:
             # Валидация пропускается или делается частичной, т.к. данные из РМИС считаем "мастер-данными"
             # Но на всякий случай базовую очистку делаем
+            fio = self.normalize_fio(fio)
             snils_cleaned = re.sub(r'[\s\-]', '', snils) if snils else None
             oms_cleaned = re.sub(r'[\s\-]', '', oms) if oms else None
             
