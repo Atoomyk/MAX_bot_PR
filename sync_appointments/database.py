@@ -392,7 +392,15 @@ class AppointmentsDatabase:
             appointments = []
             for row in rows:
                 try:
-                    appointment_data = json.loads(row[1])  # appointment_json
+                    appointment_raw = row[1]  # appointment_json
+                    # JSONB может прийти как dict, str или другой сериализованный тип
+                    if isinstance(appointment_raw, str):
+                        appointment_data = json.loads(appointment_raw)
+                    elif isinstance(appointment_raw, dict):
+                        appointment_data = appointment_raw
+                    else:
+                        appointment_data = json.loads(str(appointment_raw))
+
                     appointments.append({
                         'id': row[0],
                         'data': appointment_data,
@@ -401,7 +409,7 @@ class AppointmentsDatabase:
                         'created_at': row[4],
                         'status': row[5] if len(row) > 5 else 'active'
                     })
-                except json.JSONDecodeError as e:
+                except Exception as e:
                     logger.error(f"Ошибка парсинга JSON записи id={row[0]}: {e}")
 
             return appointments
