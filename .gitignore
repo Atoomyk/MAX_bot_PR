@@ -3,7 +3,6 @@ tickets
 help/
 commands/*.json
 ggg.py
-Soglasie.txt
 USER_GUIDE.md
 PROJECT_STRUCTURE.md
 
