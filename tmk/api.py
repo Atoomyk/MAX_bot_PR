@@ -30,6 +30,12 @@ load_dotenv()
 MIS_API_TOKEN = os.getenv("MIS_API_TOKEN")
 
 
+def _is_log_mis_create_request_enabled() -> bool:
+    """Включено ли логирование тела запроса от МИС на создание ТМК (TMK_LOG_MIS_CREATE_REQUEST)."""
+    val = (os.getenv("TMK_LOG_MIS_CREATE_REQUEST") or "").strip().lower()
+    return val in ("true", "1", "yes")
+
+
 # Глобальные переменные для зависимостей (будут инициализированы в create_tmk_app)
 tmk_db: Optional[TelemedDatabase] = None
 reminder_service: Optional[ReminderService] = None
@@ -109,7 +115,13 @@ def create_tmk_app(bot, tmk_database: TelemedDatabase, reminder_svc: ReminderSer
             external_id=request.externalId,
             schedule_date=request.scheduleDate
         )
-        
+        if _is_log_mis_create_request_enabled():
+            log_system_event(
+                "tmk_api",
+                "create_request_body",
+                request_body=request.model_dump_json(exclude_none=False)
+            )
+
         try:
             # 1. Проверка на существование сессии с таким external_id
             existing_session = tmk_db.get_session_by_external_id(request.externalId)
