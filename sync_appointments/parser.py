@@ -148,6 +148,25 @@ class Parser:
             # Формируем полное ФИО для пользователя
             full_fio = f"{last_name} {first_name} {middle_name}".strip()
 
+            # Место приёма (кабинет) из МИС — опционально
+            appointment_data = {
+                'Дата записи': visit_time_str,
+                'Мед учреждение': mo_name,
+                'Адрес мед учреждения': mo_address,
+                'ФИО врача': doctor_fio,
+                'Должность врача': doctor_position,
+                'Book_Id_Mis': book_id_mis_str,
+                'PatientID': patient_id_str,
+                'Исходные_данные': {  # Для отладки
+                    'ФИО пациента': full_fio,
+                    'Дата рождения': birth_date,
+                    'Телефон': mobile_phone
+                }
+            }
+            room_val = (record.get('Room') or '').strip()
+            if room_val:
+                appointment_data['Room'] = room_val
+
             # Формируем результат
             parsed_record = {
                 # Данные для сопоставления
@@ -158,20 +177,7 @@ class Parser:
                     'full_fio': full_fio
                 },
                 # Данные для сохранения
-                'appointment_data': {
-                    'Дата записи': visit_time_str,
-                    'Мед учреждение': mo_name,
-                    'Адрес мед учреждения': mo_address,
-                    'ФИО врача': doctor_fio,
-                    'Должность врача': doctor_position,
-                    'Book_Id_Mis': book_id_mis_str,
-                    'PatientID': patient_id_str,
-                    'Исходные_данные': {  # Для отладки
-                        'ФИО пациента': full_fio,
-                        'Дата рождения': birth_date,
-                        'Телефон': mobile_phone
-                    }
-                },
+                'appointment_data': appointment_data,
                 # Метаданные
                 'metadata': {
                     'visit_time': visit_time,

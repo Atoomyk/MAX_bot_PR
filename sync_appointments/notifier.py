@@ -204,13 +204,18 @@ class Notifier:
                 doctor_fio = appointment_data.get('ФИО врача', 'не указано')
                 doctor_position = appointment_data.get('Должность врача', 'не указано')
 
-                # Формируем полное сообщение
+                # Формируем полное сообщение (Адрес всегда; Место приёма — только если есть Room)
                 message = (
                     f"🔔 У вас новая запись к врачу!\n\n"
                     f"👤 Пациент: {patient_fio}\n"
                     f"📅 Дата и время: {datetime_info}\n"
                     f"🏥 Учреждение: {mo_name}\n"
                     f"📍 Адрес: {mo_address}\n"
+                )
+                room = appointment_data.get('Room')
+                if room and str(room).strip():
+                    message += f"📌 Место приёма: {room.strip()}\n"
+                message += (
                     f"👨‍⚕️ Врач: {doctor_fio}\n"
                     f"💼 Должность: {doctor_position}\n"
                 )
@@ -238,13 +243,18 @@ class Notifier:
                     else:
                         datetime_info = "не указано"
 
-                    # Учреждение и врач
+                    # Учреждение, адрес, место приёма (если есть), врач
                     mo_name = appointment_data.get('Мед учреждение', 'не указано')
+                    mo_address = appointment_data.get('Адрес мед учреждения', 'не указано')
                     doctor_fio = appointment_data.get('ФИО врача', 'не указано')
 
                     message += f"📅 Запись #{i}:\n"
                     message += f"   Дата/время: {datetime_info}\n"
                     message += f"   Учреждение: {mo_name}\n"
+                    message += f"   Адрес: {mo_address}\n"
+                    room = appointment_data.get('Room')
+                    if room and str(room).strip():
+                        message += f"   Место приёма: {room.strip()}\n"
                     message += f"   Врач: {doctor_fio}\n"
 
                     # Добавляем ID если есть

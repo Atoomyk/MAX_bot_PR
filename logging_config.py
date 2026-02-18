@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import os
 import re
+import contextvars
 
 # Кастомные уровни логирования
 USER_LEVEL = 25
@@ -17,6 +18,9 @@ logging.addLevelName(SYSTEM_LEVEL, "SYSTEM")
 logging.addLevelName(DATA_LEVEL, "DATA")
 logging.addLevelName(SECURITY_LEVEL, "SECURITY")
 logging.addLevelName(TRANSPORT_LEVEL, "TRANSPORT")
+
+
+current_user_id_ctx = contextvars.ContextVar("current_user_id", default=None)
 
 
 class MaskingFilter(logging.Filter):
@@ -64,6 +68,48 @@ class MaskingFilter(logging.Filter):
         return True
 
 
+class BotLoggerUserContextFilter(logging.Filter):
+    """Фильтр, добавляющий user_id в логи логгера 'bot' из контекста."""
+
+    def filter(self, record):
+        if record.name != "bot":
+            return True
+
+        try:
+            user_id = current_user_id_ctx.get()
+        except LookupError:
+            user_id = None
+
+        prefix = f"[user_id={user_id}] " if user_id is not None else "[user_id=-] "
+
+        try:
+            if hasattr(record, "msg") and record.msg is not None:
+                if not isinstance(record.msg, str):
+                    record.msg = str(record.msg)
+                record.msg = prefix + record.msg
+        except Exception:
+            # Не должен ломать логирование в случае ошибок
+            pass
+
+        return True
+
+
+def set_logging_user_id(user_id):
+    """Устанавливает текущий user_id для логов maxapi (логгер 'bot')."""
+    try:
+        if user_id is None:
+            current_user_id_ctx.set(None)
+            return
+        current_user_id_ctx.set(int(user_id))
+    except (TypeError, ValueError):
+        current_user_id_ctx.set(None)
+
+
+def clear_logging_user_id():
+    """Сбрасывает текущий user_id для логов maxapi."""
+    current_user_id_ctx.set(None)
+
+
 def setup_logging():
     """Настройка системы логирования с кастомными уровнями"""
 
@@ -109,6 +155,11 @@ def setup_logging():
     masking_filter = MaskingFilter()
     file_handler.addFilter(masking_filter)
     console_handler.addFilter(masking_filter)
+
+    # Добавляем фильтр, подставляющий user_id для логгера 'bot'
+    bot_user_filter = BotLoggerUserContextFilter()
+    file_handler.addFilter(bot_user_filter)
+    console_handler.addFilter(bot_user_filter)
 
     # Добавляем обработчики
     logger.addHandler(file_handler)

@@ -10,7 +10,7 @@ from bot_config import (
 )
 from bot_utils import (
     anti_duplicate, cleanup_processed_events, create_keyboard,
-    send_main_menu, send_other_options_menu
+    send_main_menu, send_other_options_menu, with_logging_user_context
 )
 from logging_config import log_user_event, log_system_event, log_security_event
 from visit_a_doctor.handlers import start_booking, handle_callback as handle_doctor_callback, handle_text_input as handle_doctor_text, get_or_create_context
@@ -47,6 +47,7 @@ async def send_welcome_message(bot, chat_id):
 
 
 @dp.bot_started()
+@with_logging_user_context()
 @anti_duplicate()
 async def bot_started(event: BotStarted):
     """Обработка запуска бота"""
@@ -89,6 +90,7 @@ async def bot_started(event: BotStarted):
 
 
 @dp.message_callback()
+@with_logging_user_context()
 @anti_duplicate()
 async def message_callback(event: MessageCallback):
     """Обработка нажатий на инлайн-кнопки"""
@@ -662,6 +664,7 @@ async def message_callback(event: MessageCallback):
 
 
 @dp.message_created()
+@with_logging_user_context()
 @anti_duplicate()
 async def handle_message(event: MessageCreated):
     """Обработка всех текстовых сообщений"""

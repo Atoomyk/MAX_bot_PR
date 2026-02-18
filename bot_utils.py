@@ -8,7 +8,7 @@ from maxapi import Bot
 from maxapi.types import Attachment, ButtonsPayload, CallbackButton, LinkButton, RequestContactButton
 from maxapi.utils.inline_keyboard import AttachmentType
 
-from logging_config import log_system_event
+from logging_config import log_system_event, set_logging_user_id, clear_logging_user_id
 
 # Импортируем константы URL из bot_config (ленивый импорт, чтобы избежать циклического импорта)
 def _get_url_constants():
@@ -69,6 +69,51 @@ def anti_duplicate(rate_limit=1.0):
 
             return await func(*args, **kwargs)
         return wrapper
+    return decorator
+
+
+def with_logging_user_context():
+    """Декоратор, устанавливающий current user_id для логов maxapi (логгер 'bot')."""
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            event = args[0] if args else None
+            user_id = None
+
+            if event is not None:
+                # Пытаемся взять user_id из from_user
+                if hasattr(event, "from_user") and event.from_user and hasattr(event.from_user, "user_id"):
+                    try:
+                        user_id = int(event.from_user.user_id)
+                    except (TypeError, ValueError):
+                        user_id = None
+
+                # Если не получилось — используем chat_id/recipient
+                if user_id is None:
+                    if hasattr(event, "message") and hasattr(event.message, "recipient"):
+                        try:
+                            user_id = int(event.message.recipient.chat_id)
+                        except (TypeError, ValueError):
+                            user_id = None
+                    elif hasattr(event, "chat_id"):
+                        try:
+                            user_id = int(event.chat_id)
+                        except (TypeError, ValueError):
+                            user_id = None
+
+            # Устанавливаем контекст и гарантированно сбрасываем в finally
+            clear_logging_user_id()
+            if user_id is not None:
+                set_logging_user_id(user_id)
+
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                clear_logging_user_id()
+
+        return wrapper
+
     return decorator
 
 
@@ -365,7 +410,11 @@ async def send_pending_notifications():
                 notification = chat_info['pending_notification']
                 try:
                     target_chat_id = chat_info.get('chat_id', user_id)
-                    await bot.send_message(chat_id=target_chat_id, text=notification)
+                    try:
+                        set_logging_user_id(user_id)
+                        await bot.send_message(chat_id=target_chat_id, text=notification)
+                    finally:
+                        clear_logging_user_id()
                     del chat_info['pending_notification']
                 except Exception as e:
                     log_system_event("support_chat", "send_notification_error",
@@ -374,7 +423,11 @@ async def send_pending_notifications():
         if hasattr(support_handler, 'admin_notifications'):
             for admin_id, notification in list(support_handler.admin_notifications.items()):
                 try:
-                    await bot.send_message(chat_id=admin_id, text=notification)
+                    try:
+                        set_logging_user_id(admin_id)
+                        await bot.send_message(chat_id=admin_id, text=notification)
+                    finally:
+                        clear_logging_user_id()
                     del support_handler.admin_notifications[admin_id]
                 except Exception as e:
                     log_system_event("support_chat", "send_admin_notification_error",
