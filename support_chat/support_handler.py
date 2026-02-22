@@ -67,6 +67,8 @@ class SupportHandler:
         self.waiting_queue: List[Dict] = []  # Очередь ожидающих пользователей
         self.admin_active_chat: Optional[int] = None  # user_id с которым общается админ
         self.chat_logs: Dict[int, ChatLog] = {}  # Активные логи чатов
+        self.pending_queue_confirm: Dict[int, dict] = {}  # chat_id -> {user_id, chat_id, user_data} при «оператор занят»
+        self.pending_connect_confirm: Dict[int, dict] = {}  # chat_id -> {user_id, chat_id, user_data} после первого сообщения, до «Связаться с оператором»
 
         # Создаем папку для логов
         self._ensure_tickets_dir()
@@ -226,7 +228,7 @@ class SupportHandler:
     async def handle_support_request(self, bot, user_id: int, chat_id: int, user_data: dict):
         """Обрабатывает запрос на поддержку - запускает онлайн чат"""
 
-        # Проверяем, не в чате ли уже пользователь
+        # Проверяем, не в чате ли уже пользователь — только это сообщение, без первого инфо-сообщения
         if user_id in self.active_chats:
             await bot.send_message(
                 chat_id=chat_id,
@@ -234,44 +236,84 @@ class SupportHandler:
             )
             return
 
-        # Проверяем, есть ли свободный оператор
-        if self.admin_active_chat is not None:
-            # Оператор занят - добавляем в очередь
-            self.waiting_queue.append({
-                'user_id': user_id,
-                'chat_id': chat_id,
-                'user_data': user_data,
-                'timestamp': time.time()
-            })
-
-            await bot.send_message(
-                chat_id=chat_id,
-                text="⏳ Оператор занят. Вы добавлены в очередь ожидания.\n\nКак только оператор освободится, с вами свяжутся."
-            )
-
-            log_user_event(user_id, "added_to_waiting_queue")
-            return
-
-        # Создаем новый чат
-        self._create_new_chat(user_id, chat_id, user_data)
-
-        # Отправляем сообщение пользователю
+        # Первое сообщение + кнопки «Связаться с оператором» / «Главное меню»
+        self.pending_connect_confirm[chat_id] = {
+            'user_id': user_id,
+            'chat_id': chat_id,
+            'user_data': user_data,
+        }
+        buttons_payload = ButtonsPayload(buttons=[[
+            CallbackButton(text="Связаться с оператором", payload="support_connect_operator"),
+            CallbackButton(text="Главное меню", payload="main_menu"),
+        ]])
+        keyboard = Attachment(
+            type=AttachmentType.INLINE_KEYBOARD,
+            payload=buttons_payload
+        )
         await bot.send_message(
             chat_id=chat_id,
             text=(
-                "Опишите вашу проблему или вопрос. Как только оператор подключится, он увидит все ваши сообщения.\n\n"
-                "Мы помогаем только по вопросам работы бота! "
-                "По другим вопросам рекомендуем обратиться в Единый контакт-центр здравоохранения по номеру 122.\n\n"
-                "🕘 Мы на связи по будням с 9:00 до 18:00.\n\n"
-                "Чтобы выйти из чата — отправьте цифру 0."
-            )
+                "Мы на связи по будням с 9:00 до 18:00 и помогаем только по вопросам работы бота!\n\n"
+                "По другим вопросам рекомендуем обратиться в Единый контакт-центр здравоохранения по бесплатному телефону 122."
+            ),
+            attachments=[keyboard]
         )
 
-        # Уведомляем администратора
-        await self._notify_admin_new_chat(bot, user_id, chat_id, user_data)
+    async def handle_connect_operator(self, bot, user_id: int, chat_id: int) -> bool:
+        """Обрабатывает нажатие «Связаться с оператором»: проверка занятости оператора и создание чата или очередь."""
+        data = self.pending_connect_confirm.pop(chat_id, None)
+        if not data or data.get('user_id') != user_id:
+            return False
+        uid, cid, ud = data['user_id'], data['chat_id'], data['user_data']
 
-        log_user_event(user_id, "chat_requested")
+        if self.admin_active_chat is not None:
+            self.pending_queue_confirm[chat_id] = {'user_id': uid, 'chat_id': cid, 'user_data': ud}
+            buttons_payload = ButtonsPayload(buttons=[[
+                CallbackButton(text="Подождать оператора", payload="support_wait_in_queue"),
+                CallbackButton(text="Главное меню", payload="main_menu"),
+            ]])
+            keyboard = Attachment(type=AttachmentType.INLINE_KEYBOARD, payload=buttons_payload)
+            await bot.send_message(
+                chat_id=chat_id,
+                text="⏳ Оператор занят. Вы добавлены в очередь ожидания.",
+                attachments=[keyboard]
+            )
+            return True
 
+        self._create_new_chat(uid, cid, ud)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "Опишите вашу проблему или вопрос. Как только оператор подключится, он увидит все ваши сообщения."
+            )
+        )
+        await self._notify_admin_new_chat(bot, uid, cid, ud)
+        log_user_event(uid, "chat_requested")
+        return True
+
+    def clear_pending(self, chat_id: int) -> None:
+        """Сбрасывает ожидание подтверждения «подождать оператора» и «связаться с оператором» для чата."""
+        self.pending_queue_confirm.pop(chat_id, None)
+        self.pending_connect_confirm.pop(chat_id, None)
+
+    async def confirm_wait_in_queue(self, bot, user_id: int, chat_id: int) -> bool:
+        """Обрабатывает нажатие «Подождать оператора»: добавляет в очередь, уведомляет админа, пишет пользователю."""
+        data = self.pending_queue_confirm.pop(chat_id, None)
+        if not data or data.get('user_id') != user_id:
+            return False
+        self.waiting_queue.append({
+            'user_id': data['user_id'],
+            'chat_id': data['chat_id'],
+            'user_data': data['user_data'],
+            'timestamp': time.time()
+        })
+        await self._notify_admin_new_chat(bot, data['user_id'], data['chat_id'], data['user_data'])
+        await bot.send_message(
+            chat_id=chat_id,
+            text="Вы в очереди. Как только оператор освободится, с вами свяжутся."
+        )
+        log_user_event(user_id, "added_to_waiting_queue")
+        return True
 
     def _create_new_chat(self, user_id: int, chat_id: int, user_data: dict):
         """Создает новую структуру чата"""
@@ -733,14 +775,15 @@ class SupportHandler:
             target_chat_id = chat_info.get('chat_id') if chat_info else user_id
             
             if ended_by == "user":
-                # Пользователю
+                # Пользователю + главное меню
                 try:
-                    # Если завершил пользователь, ему можно подтвердить, но необязательно, 
-                    # если он сам нажал "выйти". Но оставим для ясности.
                     if target_chat_id:
+                        from bot_utils import create_main_menu_keyboard
+                        keyboard = create_main_menu_keyboard()
                         await bot.send_message(
                             chat_id=target_chat_id,
-                            text="Чат с техподдержкой завершён."
+                            text="Чат с техподдержкой завершён.",
+                            attachments=[keyboard] if keyboard else []
                         )
                 except Exception as e:
                     log_system_event("support_chat", "end_notification_user_error",
@@ -762,49 +805,61 @@ class SupportHandler:
                                          error=str(e), admin_id=target_admin_id, user_id=user_id)
 
             elif ended_by == "admin":
-                # Пользователю
+                # Пользователю + главное меню
                 try:
                     if target_chat_id:
+                        from bot_utils import create_main_menu_keyboard
+                        keyboard = create_main_menu_keyboard()
                         await bot.send_message(
                             chat_id=target_chat_id,
-                            text="Оператор завершил чат."
+                            text="Чат с техподдержкой завершён.",
+                            attachments=[keyboard] if keyboard else []
                         )
                 except Exception as e:
                     log_system_event("support_chat", "end_notification_user_error",
                                      error=str(e), user_id=user_id)
 
-                # Админу (подтверждение)
+                # Админу (подтверждение) + главное меню
                 if admin_id:
                     try:
-                        # Получаем chat_id администратора
                         target_admin_chat_id = db.get_last_chat_id(admin_id)
                         if target_admin_chat_id:
+                            from bot_utils import create_main_menu_keyboard
+                            keyboard = create_main_menu_keyboard()
                             await bot.send_message(
                                 chat_id=target_admin_chat_id,
-                                text=f"Чат с пользователем {user_id} завершён."
+                                text=f"Чат с пользователем {user_id} завершён.",
+                                attachments=[keyboard] if keyboard else []
                             )
                     except Exception as e:
                         log_system_event("support_chat", "end_notification_admin_error",
                                          error=str(e), admin_id=admin_id, user_id=user_id)
 
             elif ended_by == "system":
-                # Пользователю
+                # Пользователю + главное меню
                 try:
                     if target_chat_id:
+                        from bot_utils import create_main_menu_keyboard
+                        keyboard = create_main_menu_keyboard()
                         await bot.send_message(
                             chat_id=target_chat_id,
-                            text="Чат автоматически завершен из-за неактивности."
+                            text="Чат автоматически завершен из-за неактивности.",
+                            attachments=[keyboard] if keyboard else []
                         )
                 except Exception as e:
                     log_system_event("support_chat", "end_notification_user_error",
                                      error=str(e), user_id=user_id)
 
-                # Админу (если подключен)
+                # Админу (если подключен) + главное меню
                 if admin_id:
                     try:
+                        target_admin_chat_id = db.get_last_chat_id(admin_id) or admin_id
+                        from bot_utils import create_main_menu_keyboard
+                        keyboard = create_main_menu_keyboard()
                         await bot.send_message(
-                            chat_id=admin_id,
-                            text=f"Чат с пользователем {user_id} автоматически завершен."
+                            chat_id=target_admin_chat_id,
+                            text=f"Чат с пользователем {user_id} автоматически завершен.",
+                            attachments=[keyboard] if keyboard else []
                         )
                     except Exception as e:
                         log_system_event("support_chat", "end_notification_admin_error",
