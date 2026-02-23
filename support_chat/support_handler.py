@@ -315,6 +315,41 @@ class SupportHandler:
         log_user_event(user_id, "added_to_waiting_queue")
         return True
 
+    async def handle_exit_to_menu(self, bot, user_id: int, chat_id: int) -> tuple:
+        """
+        Обработка кнопки «Выход в меню» только для онлайн-чата поддержки.
+        Возвращает (handled, need_main_menu): need_main_menu=False, если уже отправили меню пользователю (_end_chat).
+        """
+        # Пользователь в активном чате — завершаем как по «0»
+        if user_id in self.active_chats:
+            await self._end_chat(bot, user_id, "user", "user_exit")
+            return (True, False)
+
+        # Пользователь в очереди — удаляем, уведомляем админа
+        for i, item in enumerate(self.waiting_queue):
+            if item.get("user_id") == user_id:
+                self.waiting_queue.pop(i)
+                if self.admin_id:
+                    try:
+                        admin_chat_id = db.get_last_chat_id(self.admin_id)
+                        if admin_chat_id:
+                            await bot.send_message(
+                                chat_id=admin_chat_id,
+                                text=f"Пользователь {user_id} вышел из очереди."
+                            )
+                    except Exception as e:
+                        log_system_event("support_chat", "exit_queue_notify_admin_error",
+                                         error=str(e), user_id=user_id)
+                self.clear_pending(chat_id)
+                return (True, True)
+
+        # Ожидание подтверждения (первый экран или «оператор занят») — просто сбрасываем
+        if chat_id in self.pending_connect_confirm or chat_id in self.pending_queue_confirm:
+            self.clear_pending(chat_id)
+            return (True, True)
+
+        return (False, True)
+
     def _create_new_chat(self, user_id: int, chat_id: int, user_data: dict):
         """Создает новую структуру чата"""
         # Создаем лог чата

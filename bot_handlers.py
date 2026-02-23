@@ -562,18 +562,21 @@ async def message_callback(event: MessageCallback):
 
         elif payload == "back_to_main" or payload == "main_menu":
             log_user_event(user_id, "back_to_main_menu")
+            # Если пользователь в чате поддержки или в очереди — завершаем чат/снимаем с очереди
+            _, need_main_menu = await support_handler.handle_exit_to_menu(event.bot, user_id, chat_id)
             support_handler.clear_pending(chat_id)
 
             # Сбрасываем контекст записи к врачу
             ctx = await get_or_create_context(user_id)
             ctx.step = "INIT"
 
-            if db.is_user_registered(user_id):
-                greeting_name = db.get_user_greeting(user_id)
-                await send_main_menu(event.bot, chat_id, greeting_name)
-            else:
-                await send_welcome_message(event.bot, chat_id)
-            
+            if need_main_menu:
+                if db.is_user_registered(user_id):
+                    greeting_name = db.get_user_greeting(user_id)
+                    await send_main_menu(event.bot, chat_id, greeting_name)
+                else:
+                    await send_welcome_message(event.bot, chat_id)
+
             return
 
         # Управление напоминаниями
@@ -666,6 +669,17 @@ async def message_callback(event: MessageCallback):
             log_user_event(user_id, "support_wait_in_queue_clicked")
             ok = await support_handler.confirm_wait_in_queue(event.bot, user_id, chat_id)
             if not ok:
+                if db.is_user_registered(user_id):
+                    greeting_name = db.get_user_greeting(user_id)
+                    await send_main_menu(event.bot, chat_id, greeting_name)
+                else:
+                    await send_welcome_message(event.bot, chat_id)
+            return
+
+        elif payload == "support_exit_to_menu":
+            log_user_event(user_id, "support_exit_to_menu_clicked")
+            _, need_main_menu = await support_handler.handle_exit_to_menu(event.bot, user_id, chat_id)
+            if need_main_menu:
                 if db.is_user_registered(user_id):
                     greeting_name = db.get_user_greeting(user_id)
                     await send_main_menu(event.bot, chat_id, greeting_name)
