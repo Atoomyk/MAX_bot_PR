@@ -129,6 +129,18 @@ def parse_esia_file(file_path: str, fallback_phone: Optional[str] = None) -> Opt
                            error=f"Invalid format: expected 6 parts, got {len(parts)}",
                            file_path=file_path)
             return None
+
+        # Файл со всеми null — удаляем и не обрабатываем
+        # Поле считается null, если пустое или состоит только из слов 'null' и пробелов
+        if all(
+            (not p) or all(word.lower() == 'null' for word in p.split())
+            for p in parts
+        ):
+            delete_esia_file(file_path)
+            log_system_event("esia", "file_all_nulls_deleted",
+                             message="Файл ЕСИА со всеми пустыми полями удалён",
+                             file_path=file_path)
+            return None
         
         fio = parts[0]
         phone_raw = parts[1]
