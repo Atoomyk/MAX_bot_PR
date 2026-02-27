@@ -848,9 +848,9 @@ class UserDatabase:
         return bool(re.match(r"^\d{11}$", snils_cleaned))
 
     def validate_oms(self, oms: str) -> bool:
-        """Простая проверка формата ОМС (16 цифр)"""
+        """Простая проверка формата ОМС (10–20 цифр)"""
         oms_cleaned = re.sub(r'[\s\-]', '', oms)
-        return bool(re.match(r"^\d{16}$", oms_cleaned))
+        return bool(re.match(r"^\d{10,20}$", oms_cleaned))
 
     def validate_gender(self, gender: str) -> bool:
         return gender in ["Мужской", "Женский"]

@@ -143,7 +143,7 @@ class RegistrationHandler:
         self.user_states[user_id] = {'state': 'waiting_oms', 'data': user_data}
         await bot_instance.send_message(
             chat_id=chat_id,
-            text="Введите номер полиса ОМС (16 цифр)."
+            text="Введите номер полиса ОМС (от 10 до 20 цифр)."
         )
 
     async def request_gender(self, bot_instance: Bot, user_id: int, chat_id: int, user_data: dict):
@@ -280,7 +280,7 @@ class RegistrationHandler:
             'birth_date': "❌ Ошибка формата!\n\nПожалуйста, введите дату рождения в формате: ДД.ММ.ГГГГ\n\nПример: 13.03.2003",
             'phone': "❌ Неверный формат номера телефона.",
             'snils': "❌ Неверный формат СНИЛС (нужно 11 цифр).",
-            'oms': "❌ Неверный формат ОМС (нужно 16 цифр).",
+            'oms': "❌ Неверный формат ОМС (должен содержать от 10 до 20 цифр).",
             'gender': "❌ Неверный формат пола."
         }
 
@@ -318,7 +318,7 @@ class RegistrationHandler:
             'oms': {
                 'state': 'waiting_oms_correction',
                 'log_event': 'oms_correction_requested',
-                'message': "Введите ваш полис ОМС для исправления (16 цифр)."
+                'message': "Введите ваш полис ОМС для исправления (от 10 до 20 цифр)."
             },
             'gender': {
                 'state': 'waiting_gender_correction',
