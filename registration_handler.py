@@ -836,6 +836,25 @@ class RegistrationHandler:
             self.user_states.pop(user_id, None)
             return
         
+        # Проверяем возраст по данным из ЕСИА (регистрация доступна только 18+)
+        if not self._is_adult(data.get('birth_date', '')):
+            log_user_event(user_id, "esia_underage_rejected", birth_date=data.get('birth_date'))
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text="⛔ Регистрация доступна только пользователям старше 18 лет.\nПо данным из ЕСИА, вам ещё нет 18 лет, поэтому мы не можем завершить регистрацию."
+            )
+            
+            # Удаляем файл для несовершеннолетних пользователей
+            delete_esia_file(file_path)
+            
+            # Показываем стартовое сообщение
+            from bot_handlers import send_welcome_message
+            await send_welcome_message(bot_instance, chat_id)
+            
+            # Очищаем состояние
+            self.user_states.pop(user_id, None)
+            return
+        
         # Сохраняем данные в БД
         log_user_event(user_id, "esia_data_saving_attempt")
         success = save_esia_data_to_db(user_id, chat_id, data)
