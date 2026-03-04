@@ -246,6 +246,7 @@ class SoapResponseParser:
 
         Возвращает dict с ключами:
         - status_code: Optional[str]
+        - comment: Optional[str] (текст из Status/Comment для отображения пользователю)
         - book_id_mis: Optional[str]
         - visit_time: Optional[str] (как в XML, например 2025-12-17T09:15:00+03:00)
         - room: Optional[str]
@@ -254,6 +255,7 @@ class SoapResponseParser:
         """
         return {
             "status_code": SoapResponseParser._extract_first_tag_value(xml_content, "Status_Code"),
+            "comment": SoapResponseParser._extract_first_tag_value(xml_content, "Comment"),
             "book_id_mis": SoapResponseParser._extract_first_tag_value(xml_content, "Book_Id_Mis"),
             "visit_time": SoapResponseParser._extract_first_tag_value(xml_content, "Visit_Time"),
             "room": SoapResponseParser._extract_first_tag_value(xml_content, "Room"),

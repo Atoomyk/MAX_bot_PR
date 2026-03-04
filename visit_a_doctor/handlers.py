@@ -1143,12 +1143,27 @@ async def handle_callback(bot, user_id, chat_id, payload):
             else:
                 await bot.send_message(chat_id=chat_id, text=summary, attachments=[keyboard])
         else:
-            keyboard = kb.kb_final_menu()
-            if not keyboard:
-                await bot.send_message(chat_id=chat_id, text="❌ Ошибка при создании записи. Возможно слот уже занят.")
+            status_code = (details.get("status_code") or "").strip().upper()
+            comment = (details.get("comment") or "").strip()
+
+            if status_code == "APPOINT_PATIENT_REGISTERED_SPECIALIST":
+                error_text = comment or "Извините, запись невозможна. Пациент уже записан к специалисту такого же профиля."
+            elif status_code == "APPOINT_PATIENT_REGISTERED_OTHER_SPECIALIST":
+                error_text = "Извините, запись невозможна. Пациент уже записан на это время к другому специалисту. Выберите другое время."
+            elif status_code == "APPOINT_PATIENT_REGISTERED_ROOM":
+                error_text = "Извините, запись невозможна. Пациент уже записан на другую услугу на это время. Пожалуйста, выберите другое время."
+            elif status_code == "APPOINT_TIME_IS_BUSY":
+                error_text = "Извините, запись невозможна. Время уже занято другим пациентом. Выберите другое время."
             else:
-                await bot.send_message(chat_id=chat_id, text="❌ Ошибка при создании записи. Возможно слот уже занят.", attachments=[keyboard])
-            
+                error_text = "Ошибка при создании записи. Возможно слот уже занят."
+
+            keyboard = kb.kb_final_menu()
+            msg_text = f"❌ {error_text}"
+            if not keyboard:
+                await bot.send_message(chat_id=chat_id, text=msg_text)
+            else:
+                await bot.send_message(chat_id=chat_id, text=msg_text, attachments=[keyboard])
+
         if user_id in user_states:
              del user_states[user_id]
         return
