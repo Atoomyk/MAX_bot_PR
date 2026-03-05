@@ -182,11 +182,13 @@ class SoapResponseParser:
                     room_id = room.find("Room_Id")
                     room_number = room.find("Room_Number")
                     room_name = room.find("Room_Name")
+                    room_oid = room.find("Room_OID")
                     
                     if room_id is not None:
                         room_id_text = room_id.text or ""
                         room_number_text = room_number.text if room_number is not None else ""
                         room_name_text = room_name.text if room_name is not None else ""
+                        room_oid_text = room_oid.text if room_oid is not None else ""
                         
                         # Используем Room_Id как идентификатор, а Room_Name или Room_Number как имя
                         display_name = room_name_text if room_name_text else f"Кабинет {room_number_text}" if room_number_text else f"Кабинет {room_id_text}"
@@ -196,7 +198,8 @@ class SoapResponseParser:
                             "name": display_name,
                             "dates": dates,
                             "type": "room",  # Маркер типа ресурса
-                            "room_id": room_id_text  # Сохраняем Room_Id для запроса слотов
+                            "room_id": room_id_text,  # Сохраняем Room_Id для запроса слотов
+                            "room_oid": room_oid_text,  # Сохраняем Room_OID для запроса слотов
                         })
 
         except Exception as e:

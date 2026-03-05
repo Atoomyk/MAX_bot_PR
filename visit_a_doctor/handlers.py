@@ -893,11 +893,12 @@ async def handle_callback(bot, user_id, chat_id, payload):
             ctx.selected_doctor_name = found_doc['name']
             ctx.available_dates_cache = found_doc['dates'] # Сохраняем даты из объекта врача
             
-            # Сохраняем тип ресурса и room_id если это кабинет
+            # Сохраняем тип ресурса и room_id/room_oid если это кабинет
             resource_type = found_doc.get('type', 'specialist')
             ctx.selected_resource_type = resource_type
             if resource_type == 'room':
                 ctx.selected_room_id = found_doc.get('room_id', '')
+                ctx.selected_room_oid = found_doc.get('room_oid', '')
         else:
             await bot.send_message(chat_id=chat_id, text="Ошибка выбора врача.")
             return
@@ -950,15 +951,25 @@ async def handle_callback(bot, user_id, chat_id, payload):
         resource_type = getattr(ctx, 'selected_resource_type', 'specialist')
         specialist_snils = ctx.selected_doctor_id
         
-        # Если это кабинет (ROOM_XXX), используем пустой SNILS
+        # Если это кабинет (ROOM_XXX), используем пустой SNILS и фильтрацию по Room
         room_id = None
+        room_oid = None
         if resource_type == 'room' and ctx.selected_doctor_id.startswith('ROOM_'):
-            # Для кабинетов используем пустой SNILS
+            # Для кабинетов используем пустой SNILS и Room_Id/Room_OID
             specialist_snils = ''
             room_id = getattr(ctx, 'selected_room_id', '')
+            room_oid = getattr(ctx, 'selected_room_oid', '')
         
         try:
-            xml = await SoapClient.get_slots(ctx.session_id, specialist_snils, ctx.selected_mo_oid, ctx.selected_post_id, date_str, room_id)
+            xml = await SoapClient.get_slots(
+                ctx.session_id,
+                specialist_snils,
+                ctx.selected_mo_oid,
+                ctx.selected_post_id,
+                date_str,
+                room_id,
+                room_oid,
+            )
             slots = SoapResponseParser.parse_slots(xml)
         except Exception as e:
             await handle_soap_error(bot, user_id, chat_id, str(e), ctx)

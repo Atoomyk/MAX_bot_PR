@@ -116,7 +116,15 @@ class SoapClient:
         return await SoapClient._send_request(xml, "GetMOResourceInfo")
 
     @staticmethod
-    async def get_slots(session_id: str, specialist_snils: str, mo_oid: str, post_id: str, date: str, room_id: str = None) -> str:
+    async def get_slots(
+        session_id: str,
+        specialist_snils: str,
+        mo_oid: str,
+        post_id: str,
+        date: str,
+        room_id: str = None,
+        room_oid: str = None,
+    ) -> str:
         """9. GetScheduleInfoRequest"""
         # date expected format YYYY-MM-DD for Request? The example shows ranges. 
         # But we are selecting a specific date. Let's use that date as Range.
@@ -124,10 +132,36 @@ class SoapClient:
         d_obj = datetime.strptime(date, "%d.%m.%Y")
         fmt_date = d_obj.strftime("%Y-%m-%d")
         
-        # Для кабинетов specialist_snils может быть пустым
-        specialist_snils_value = specialist_snils if specialist_snils else ""
+        # Режим кабинета: если передан Room_Id/Room_OID и нет SNILS
+        is_room_mode = (room_id or room_oid) and not specialist_snils
         
-        xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+        if is_room_mode:
+            # Запрос расписания по конкретному кабинету (Room)
+            room_oid_part = f"\n            <Room_OID>{room_oid}</Room_OID>" if room_oid else ""
+            room_id_part = f"\n            <Room_Id>{room_id}</Room_Id>" if room_id else ""
+            
+            xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+    <soapenv:Body>
+        <GetScheduleInfoRequest xmlns="http://www.rt-eu.ru/med/er/v2_0">
+            <Session_ID>{session_id}</Session_ID>{room_oid_part}{room_id_part}
+            <MO_OID>{mo_oid}</MO_OID>
+            <Service_Post>
+                <Post>
+                    <Post_Id>{post_id}</Post_Id>
+                </Post>
+            </Service_Post>
+            <Start_Date_Range>{fmt_date}</Start_Date_Range>
+            <End_Date_Range>{fmt_date}</End_Date_Range>
+            <Start_Time_Range>00:00:00</Start_Time_Range>
+            <End_Time_Range>23:59:00</End_Time_Range>
+        </GetScheduleInfoRequest>
+    </soapenv:Body>
+</soapenv:Envelope>"""
+        else:
+            # Режим врача: фильтрация по Specialist_SNILS
+            specialist_snils_value = specialist_snils if specialist_snils else ""
+            
+            xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
     <soapenv:Body>
         <GetScheduleInfoRequest xmlns="http://www.rt-eu.ru/med/er/v2_0">
             <Session_ID>{session_id}</Session_ID>
