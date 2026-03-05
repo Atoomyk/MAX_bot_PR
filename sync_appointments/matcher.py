@@ -38,45 +38,56 @@ class Matcher:
         """
         try:
             matching_data = patient_data.get('matching_data', {})
-
-            normalized_fio = matching_data.get('fio', '')
             normalized_phones = matching_data.get('phones', [])
-            normalized_birth_date = matching_data.get('birth_date', '')
-
-            if not all([normalized_fio, normalized_phones, normalized_birth_date]):
-                logger.warning("Неполные данные для сопоставления")
-                return None
-
-            # 1. Ищем пользователей с совпадающей датой рождения
-            users_with_same_birthdate = self._find_users_by_birth_date(normalized_birth_date)
-
-            if not users_with_same_birthdate:
-                logger.debug(f"Не найдено пользователей с датой рождения {normalized_birth_date}")
+            if not normalized_phones:
+                logger.warning("Невозможно выполнить сопоставление: отсутствует телефон в данных пациента")
                 self.unmatched_count += 1
                 return None
 
-            # 2. Среди найденных ищем совпадение по ФИО и телефону
-            for user in users_with_same_birthdate:
-                chat_id = user[0]  # chat_id из БД
+            chat_id = self._find_user_by_phone(normalized_phones)
+            if chat_id is not None:
+                self.matched_count += 1
+                logger.info(f"Найден пользователь по телефону: chat_id={chat_id}")
+                return chat_id
 
-                # Проверяем ФИО
-                if not self._match_fio(chat_id, normalized_fio):
-                    continue
-
-                # Проверяем телефон (хотя бы один номер должен совпадать)
-                if self._match_phone(chat_id, normalized_phones):
-                    self.matched_count += 1
-                    logger.info(f"Найден пользователь: chat_id={chat_id}, ФИО={normalized_fio}")
-                    return chat_id
-
-            # Если дошли до сюда - пользователь не найден
-            logger.debug(f"Пользователь не найден: ФИО={normalized_fio}, тел={normalized_phones[:1]}...")
+            logger.debug(f"Пользователь не найден по телефонам: {normalized_phones}")
             self.unmatched_count += 1
             return None
 
         except Exception as e:
             logger.error(f"Ошибка поиска пользователя: {e}")
             self.unmatched_count += 1
+            return None
+
+    def _find_user_by_phone(self, normalized_phones: List[str]) -> Optional[str]:
+        """
+        Ищет пользователя по одному из нормализованных телефонных номеров.
+
+        Args:
+            normalized_phones: Список нормализованных номеров из МИС
+
+        Returns:
+            chat_id пользователя или None если не найден
+        """
+        try:
+            for phone in normalized_phones:
+                if not phone:
+                    continue
+                query = "SELECT user_id FROM users WHERE phone = %s"
+                self.db.cursor.execute(query, (phone,))
+                rows = self.db.cursor.fetchall()
+
+                if not rows:
+                    continue
+
+                if len(rows) > 1:
+                    logger.warning(f"Найдено несколько пользователей с одинаковым телефоном {phone}, берем первого")
+
+                return rows[0][0]
+
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка поиска пользователя по телефону: {e}")
             return None
 
     def _find_users_by_birth_date(self, birth_date: str) -> List[Tuple]:
