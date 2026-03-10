@@ -294,6 +294,7 @@ def create_main_menu_keyboard():
     urls = _get_url_constants()
     buttons_config = [
         [{'type': 'callback', 'text': '📅 Записаться на приём к врачу', 'payload': "start_visit_doctor"}],
+        [{'type': 'callback', 'text': '📄 Записаться по направлению', 'payload': "start_visit_referral"}],
         [{'type': 'callback', 'text': '📋 Мои записи к врачу', 'payload': "my_appointments"}],
         [{'type': 'callback', 'text': '📖 Руководство пользователя', 'payload': "get_user_manual"}],
         [{'type': 'callback', 'text': '🔍 Другие возможности', 'payload': "other_options"}]

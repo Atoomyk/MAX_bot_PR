@@ -156,6 +156,29 @@ async def message_callback(event: MessageCallback):
             log_user_event(user_id, "visit_doctor_action", payload=payload)
             await handle_doctor_callback(event.bot, user_id, chat_id, payload)
             return
+
+        # --- Referral Visit Module ---
+        if payload == 'start_visit_referral':
+            log_user_event(user_id, "visit_referral_start")
+            if not db.is_user_registered(user_id):
+                keyboard = create_keyboard([[
+                    {'type': 'callback', 'text': 'Начать регистрацию', 'payload': "start_continue"}
+                ]])
+                await event.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Для записи по направлению необходимо сначала зарегистрироваться.",
+                    attachments=[keyboard] if keyboard else []
+                )
+                return
+            from referral_visit.handlers import start_referral_booking
+            await start_referral_booking(event.bot, user_id, chat_id)
+            return
+
+        if payload.startswith('ref_'):
+            log_user_event(user_id, "visit_referral_action", payload=payload)
+            from referral_visit.handlers import handle_referral_callback
+            await handle_referral_callback(event.bot, user_id, chat_id, payload)
+            return
         # ---------------------------
 
         # Логирование button_pressed будет происходить только для неизвестных payload
@@ -725,6 +748,18 @@ async def handle_message(event: MessageCreated):
 
         if not event.message.body:
             return
+
+        # --- Referral Visit: ввод номера направления ---
+        if event.message.body.text:
+            try:
+                from referral_visit.handlers import handle_referral_text_input
+                from referral_visit.handlers import referral_user_states
+                if user_id in referral_user_states and referral_user_states[user_id].step == "REF_ENTER_NUMBER":
+                    handled = await handle_referral_text_input(event.bot, user_id, chat_id, event.message.body.text)
+                    if handled:
+                        return
+            except Exception as e:
+                log_system_event("referral_visit_module", "text_input_error", error=str(e), user_id=user_id)
 
         # --- Visit Doctor Module ---
         # Проверяем, находится ли пользователь в сценарии записи к врачу
