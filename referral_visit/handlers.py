@@ -13,17 +13,26 @@ from referral_visit import keyboards as ref_kb
 from referral_visit.soap_client import (
     get_patient_referrals,
     get_referral_by_number,
+    get_mos,
     get_doctors_referral,
+    get_slots_referral,
+    book_appointment_referral,
 )
-from referral_visit.soap_parser import parse_referrals, parse_get_referral_info_response
+from referral_visit.soap_parser import (
+    parse_referrals,
+    parse_get_referral_info_response,
+    parse_session_id,
+    parse_mo_list,
+    parse_doctors,
+    parse_slots,
+    parse_create_appointment_details,
+)
 from referral_visit.constants import (
     NO_SLOTS_MESSAGE,
     GET_REFERRAL_ERROR_MESSAGES,
     INACTIVITY_TIMEOUT_MINUTES,
     SOAP_SESSION_TIMEOUT_MINUTES,
 )
-from visit_a_doctor.soap_client import SoapClient as VisitSoapClient
-from visit_a_doctor.soap_parser import SoapResponseParser
 from visit_a_doctor.specialties_mapping import get_specialty_name
 async def _check_referral_validity(bot, user_id: int, chat_id: int, ctx: ReferralUserContext) -> bool:
     """Проверка таймаута и сессии для сценария направления. Возвращает False если нужно прервать."""
@@ -216,7 +225,7 @@ async def _load_referrals_and_show_list(bot, user_id: int, chat_id: int, ctx: Re
         log_user_event(user_id, "referral_soap_error", error=str(e))
         return
 
-    session_id = SoapResponseParser.parse_session_id(xml)
+    session_id = parse_session_id(xml)
     if not session_id:
         await bot.send_message(
             chat_id=chat_id,
@@ -240,8 +249,8 @@ async def _load_referrals_and_show_list(bot, user_id: int, chat_id: int, ctx: Re
         return
 
     try:
-        xml_mo = await VisitSoapClient.get_mos(session_id)
-        mos = SoapResponseParser.parse_mo_list(xml_mo)
+        xml_mo = await get_mos(session_id)
+        mos = parse_mo_list(xml_mo)
     except Exception:
         mos = []
     cache = get_ref_cache(user_id)
@@ -360,7 +369,7 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
             await bot.send_message(chat_id=chat_id, text="🔄 Поиск доступных дат...")
             try:
                 xml_res = await get_doctors_referral(ctx.session_id, ctx.selected_post_id, ctx.selected_mo_oid, start_d, end_d)
-                doctors = SoapResponseParser.parse_doctors(xml_res)
+                doctors = parse_doctors(xml_res)
             except Exception as e:
                 await _referral_soap_error(bot, user_id, chat_id, str(e))
                 return
@@ -389,7 +398,7 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         await bot.send_message(chat_id=chat_id, text="🔄 Поиск врачей и кабинетов...")
         try:
             xml_res = await get_doctors_referral(ctx.session_id, ctx.selected_post_id, ctx.selected_mo_oid, start_d, end_d)
-            doctors = SoapResponseParser.parse_doctors(xml_res)
+            doctors = parse_doctors(xml_res)
         except Exception as e:
             await _referral_soap_error(bot, user_id, chat_id, str(e))
             return
@@ -453,11 +462,16 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         room_id = ctx.selected_room_id if ctx.selected_resource_type == "room" else None
         room_oid = ctx.selected_room_oid if ctx.selected_resource_type == "room" else None
         try:
-            xml_slots = await VisitSoapClient.get_slots(
-                ctx.session_id, specialist_snils, ctx.selected_mo_oid, ctx.selected_post_id,
-                date_str, room_id=room_id, room_oid=room_oid,
+            xml_slots = await get_slots_referral(
+                ctx.session_id,
+                specialist_snils,
+                ctx.selected_mo_oid,
+                ctx.selected_post_id,
+                date_str,
+                room_id=room_id,
+                room_oid=room_oid,
             )
-            slots = SoapResponseParser.parse_slots(xml_slots)
+            slots = parse_slots(xml_slots)
         except Exception as e:
             await _referral_soap_error(bot, user_id, chat_id, str(e))
             return
@@ -526,8 +540,8 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
     if payload == "ref_confirm_booking":
         await bot.send_message(chat_id=chat_id, text="🔄 Оформление записи...")
         try:
-            xml = await VisitSoapClient.book_appointment(ctx.session_id, ctx.selected_slot_id)
-            details = SoapResponseParser.parse_create_appointment_details(xml)
+            xml = await book_appointment_referral(ctx.session_id, ctx.selected_slot_id)
+            details = parse_create_appointment_details(xml)
             success = (details.get("status_code") or "").strip().upper() == "SUCCESS"
         except Exception as e:
             await _referral_soap_error(bot, user_id, chat_id, str(e))
@@ -641,8 +655,8 @@ async def handle_referral_text_input(bot, user_id: int, chat_id: int, text: str)
         return True
 
     try:
-        xml_mo = await VisitSoapClient.get_mos(ctx.session_id)
-        mos = SoapResponseParser.parse_mo_list(xml_mo)
+        xml_mo = await get_mos(ctx.session_id)
+        mos = parse_mo_list(xml_mo)
     except Exception:
         mos = []
     cache = get_ref_cache(user_id)

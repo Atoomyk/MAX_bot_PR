@@ -1,15 +1,17 @@
-# referral_visit/soap_parser.py
-"""Парсинг ответов МИС для сценария записи по направлению."""
+"""
+Парсинг ответов МИС для сценария записи по направлению.
+
+Отдельный парсер, не зависящий от visit_a_doctor.
+"""
 import re
 from typing import List, Dict, Any, Optional
-
-from visit_a_doctor.soap_parser import SoapResponseParser
+import xml.etree.ElementTree as ET
 
 
 def _clean_xml(xml_content: str) -> str:
-    xml_clean = re.sub(r'\s+xmlns:?[^=]*="[^"]+"', '', xml_content)
-    xml_clean = re.sub(r'<(\w+):', '<', xml_clean)
-    xml_clean = re.sub(r'</(\w+):', '</', xml_clean)
+    xml_clean = re.sub(r'\s+xmlns:?[^=]*="[^"]+"', "", xml_content)
+    xml_clean = re.sub(r"<(\w+):", "<", xml_clean)
+    xml_clean = re.sub(r"</(\w+):", "</", xml_clean)
     return xml_clean
 
 
@@ -18,6 +20,23 @@ def _text(el, tag: str, default: str = "") -> str:
         return default
     child = el.find(tag)
     return (child.text or "").strip() if child is not None else default
+
+
+def parse_session_id(xml_content: str) -> Optional[str]:
+    """Парсит Session_ID из любого ответа с учётом неймспейсов."""
+    try:
+        if "Session_ID" in xml_content:
+            m = re.search(r"<Session_ID>([^<]+)</Session_ID>", xml_content)
+            if m:
+                return m.group(1).strip()
+        xml_clean = _clean_xml(xml_content)
+        root = ET.fromstring(xml_clean)
+        for node in root.iter():
+            if node.tag == "Session_ID" and node.text:
+                return node.text.strip()
+    except Exception as e:
+        print(f"referral_visit parse_session_id error: {e}")
+    return None
 
 
 def parse_referrals(xml_content: str) -> List[Dict[str, Any]]:
@@ -108,7 +127,7 @@ def parse_get_referral_info_response(xml_content: str) -> Dict[str, Any]:
     """
     out = {"error_code": None, "referrals": [], "session_id": None}
     try:
-        session_id = SoapResponseParser.parse_session_id(xml_content)
+        session_id = parse_session_id(xml_content)
         out["session_id"] = session_id
 
         err_el = re.search(r"<Error_Code>([^<]+)</Error_Code>", xml_content)
@@ -121,3 +140,163 @@ def parse_get_referral_info_response(xml_content: str) -> Dict[str, Any]:
         print(f"parse_get_referral_info_response error: {e}")
         out["error_code"] = "UNDEFINED_ERROR"
     return out
+
+
+def parse_mo_list(xml_content: str) -> List[Dict[str, str]]:
+    """Парсит список МО (GetMOInfoExtendedResponse) для направлений."""
+    mos: List[Dict[str, str]] = []
+    try:
+        xml_clean = _clean_xml(xml_content)
+        root = ET.fromstring(xml_clean)
+        for mo_node in root.findall(".//MO"):
+            mo_id = mo_node.find("MO_Id")
+            name = mo_node.find("MO_Name")
+            oid = mo_node.find("MO_OID")
+            address = mo_node.find("MO_Address")
+            if mo_id is not None and name is not None:
+                mos.append(
+                    {
+                        "id": mo_id.text,
+                        "name": name.text,
+                        "oid": oid.text if oid is not None else "",
+                        "address": address.text if address is not None else "",
+                    }
+                )
+    except Exception as e:
+        print(f"referral_visit parse_mo_list error: {e}")
+    return mos
+
+
+def parse_doctors(xml_content: str) -> List[Dict[str, str]]:
+    """
+    Парсит список ресурсов (GetMOResourceInfoResponse) для направлений.
+    Возвращает элементы с полями: id, name, dates, type, mo_oid, room_id/room_oid (для кабинета).
+    """
+    doctors: List[Dict[str, Any]] = []
+    try:
+        xml_clean = _clean_xml(xml_content)
+        root = ET.fromstring(xml_clean)
+
+        for mo_available in root.findall(".//MO_Available"):
+            mo_node = mo_available.find("MO")
+            mo_oid_el = mo_node.find("MO_OID") if mo_node is not None else None
+            mo_oid_text = (mo_oid_el.text or "").strip() if mo_oid_el is not None else ""
+
+            for resource in mo_available.findall(".//Resource"):
+                specialist = resource.find("Specialist")
+                room = resource.find("Room")
+
+                dates: List[str] = []
+                avail_dates = resource.find("Available_Dates")
+                if avail_dates is not None:
+                    for d in avail_dates.findall("Available_Date"):
+                        raw_date = (d.text or "")[:10]
+                        if not raw_date:
+                            continue
+                        formatted_date = f"{raw_date[8:10]}.{raw_date[5:7]}.{raw_date[0:4]}"
+                        dates.append(formatted_date)
+
+                if not dates:
+                    continue
+
+                if specialist is not None:
+                    last = specialist.find("Last_Name")
+                    first = specialist.find("First_Name")
+                    middle = specialist.find("Middle_Name")
+                    snils = specialist.find("SNILS")
+
+                    if last is not None and first is not None and middle is not None and snils is not None:
+                        last_name = last.text or ""
+                        first_name = first.text or ""
+                        middle_name = middle.text or ""
+                        snils_text = snils.text or ""
+
+                        full_name = f"{last_name} {first_name[0]}.{middle_name[0]}."
+
+                        doctors.append(
+                            {
+                                "id": snils_text,
+                                "name": full_name,
+                                "dates": dates,
+                                "type": "specialist",
+                                "mo_oid": mo_oid_text,
+                            }
+                        )
+
+                elif room is not None:
+                    room_id = room.find("Room_Id")
+                    room_number = room.find("Room_Number")
+                    room_name = room.find("Room_Name")
+                    room_oid = room.find("Room_OID")
+
+                    if room_id is not None:
+                        room_id_text = room_id.text or ""
+                        room_number_text = room_number.text if room_number is not None else ""
+                        room_name_text = room_name.text if room_name is not None else ""
+                        room_oid_text = room_oid.text if room_oid is not None else ""
+
+                        display_name = (
+                            room_name_text
+                            if room_name_text
+                            else f"Кабинет {room_number_text}" if room_number_text else f"Кабинет {room_id_text}"
+                        )
+
+                        doctors.append(
+                            {
+                                "id": f"ROOM_{room_id_text}",
+                                "name": display_name,
+                                "dates": dates,
+                                "type": "room",
+                                "room_id": room_id_text,
+                                "room_oid": room_oid_text,
+                                "mo_oid": mo_oid_text,
+                            }
+                        )
+    except Exception as e:
+        print(f"referral_visit parse_doctors error: {e}")
+    return doctors
+
+
+def parse_slots(xml_content: str) -> List[Dict[str, str]]:
+    """Парсит слоты (GetScheduleInfoResponse) для направлений."""
+    slots: List[Dict[str, str]] = []
+    try:
+        xml_clean = _clean_xml(xml_content)
+        root = ET.fromstring(xml_clean)
+
+        for slot in root.findall(".//Slots"):
+            slot_id_el = slot.find("Slot_Id")
+            visit_time_el = slot.find("VisitTime")
+            room_el = slot.find("Room")
+            if slot_id_el is None or visit_time_el is None:
+                continue
+            slot_id = slot_id_el.text
+            visit_time = visit_time_el.text
+            room = room_el.text if room_el is not None else ""
+            if not visit_time:
+                continue
+            time_str = visit_time[11:16]
+            slots.append({"id": slot_id, "time": time_str, "room": room})
+    except Exception as e:
+        print(f"referral_visit parse_slots error: {e}")
+    return slots
+
+
+def parse_create_appointment_details(xml_content: str) -> Dict[str, Any]:
+    """
+    Парсит CreateAppointmentResponse и возвращает ключевые поля
+    для сценария направлений.
+    """
+    def _val(tag: str) -> Optional[str]:
+        m = re.search(rf"<{tag}>([^<]+)</{tag}>", xml_content)
+        return m.group(1).strip() if m else None
+
+    return {
+        "status_code": _val("Status_Code"),
+        "comment": _val("Comment"),
+        "book_id_mis": _val("Book_Id_Mis"),
+        "visit_time": _val("Visit_Time"),
+        "room": _val("Room"),
+        "slot_id": _val("Slot_Id"),
+        "session_id": _val("Session_ID"),
+    }
