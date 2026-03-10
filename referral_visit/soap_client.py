@@ -9,10 +9,29 @@ SOAP_HEADERS = {"Content-Type": "text/xml; charset=utf-8"}
 
 # Переиспользуем _send_request из visit_a_doctor
 from visit_a_doctor.soap_client import SoapClient as VisitSoapClient
+from logging_config import log_data_event
 
 
-async def _send_request(xml_body: str, soap_action: str) -> str:
-    return await VisitSoapClient._send_request(xml_body, soap_action)
+async def _send_request(xml_body: str, soap_action: str, user_id: int | None = None) -> str:
+    """
+    Общая отправка SOAP-запросов для сценария записи по направлению.
+    Временно логируем исходящий XML и ответ для диагностики.
+    """
+    uid = user_id if user_id is not None else 0
+    try:
+        log_data_event(uid, "referral_soap_request", soap_action=soap_action, xml=xml_body)
+    except Exception:
+        # Логирование не должно ломать основной поток
+        pass
+
+    response_text = await VisitSoapClient._send_request(xml_body, soap_action)
+
+    try:
+        log_data_event(uid, "referral_soap_response", soap_action=soap_action, xml=response_text)
+    except Exception:
+        pass
+
+    return response_text
 
 
 async def get_patient_referrals(

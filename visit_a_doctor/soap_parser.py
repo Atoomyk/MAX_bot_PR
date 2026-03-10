@@ -137,70 +137,82 @@ class SoapResponseParser:
             root = ET.fromstring(xml_clean)
             
             # Иерархия: MO_Resource_List -> MO_Available -> Resource_Available -> Resource -> Specialist или Room
+            # Нам важно сохранить MO_OID для каждого ресурса, чтобы потом использовать его при запросе расписания.
             
-            for resource in root.findall(".//Resource"):
-                specialist = resource.find("Specialist")
-                room = resource.find("Room")
+            for mo_available in root.findall(".//MO_Available"):
+                mo_node = mo_available.find("MO")
+                mo_oid_el = mo_node.find("MO_OID") if mo_node is not None else None
+                mo_oid_text = (mo_oid_el.text or "").strip() if mo_oid_el is not None else ""
                 
-                # Собираем доступные даты (общее для обоих случаев)
-                dates = []
-                avail_dates = resource.find("Available_Dates")
-                if avail_dates is not None:
-                     for d in avail_dates.findall("Available_Date"):
-                         # 2025-12-19T00:00:00+03:00 -> 19.12.2025
-                         raw_date = d.text[:10] # 2025-12-19
-                         formatted_date = f"{raw_date[8:10]}.{raw_date[5:7]}.{raw_date[0:4]}"
-                         dates.append(formatted_date)
-                
-                if not dates:  # Пропускаем ресурсы без доступных дат
-                    continue
-                
-                # Случай 1: Есть Specialist (врач)
-                if specialist is not None:
-                    last = specialist.find("Last_Name")
-                    first = specialist.find("First_Name")
-                    middle = specialist.find("Middle_Name")
-                    snils = specialist.find("SNILS")
+                for resource in mo_available.findall(".//Resource"):
+                    specialist = resource.find("Specialist")
+                    room = resource.find("Room")
                     
-                    if last is not None and first is not None and middle is not None and snils is not None:
-                        last_name = last.text or ""
-                        first_name = first.text or ""
-                        middle_name = middle.text or ""
-                        snils_text = snils.text or ""
-                        
-                        full_name = f"{last_name} {first_name[0]}.{middle_name[0]}."
-                        
-                        doctors.append({
-                            "id": snils_text, # ID врача для следующих шагов
-                            "name": full_name,
-                            "dates": dates,
-                            "type": "specialist"  # Маркер типа ресурса
-                        })
-                
-                # Случай 2: Есть только Room (кабинет без конкретного врача)
-                elif room is not None:
-                    room_id = room.find("Room_Id")
-                    room_number = room.find("Room_Number")
-                    room_name = room.find("Room_Name")
-                    room_oid = room.find("Room_OID")
+                    # Собираем доступные даты (общее для обоих случаев)
+                    dates = []
+                    avail_dates = resource.find("Available_Dates")
+                    if avail_dates is not None:
+                        for d in avail_dates.findall("Available_Date"):
+                            # 2025-12-19T00:00:00+03:00 -> 19.12.2025
+                            raw_date = d.text[:10]  # 2025-12-19
+                            formatted_date = f"{raw_date[8:10]}.{raw_date[5:7]}.{raw_date[0:4]}"
+                            dates.append(formatted_date)
                     
-                    if room_id is not None:
-                        room_id_text = room_id.text or ""
-                        room_number_text = room_number.text if room_number is not None else ""
-                        room_name_text = room_name.text if room_name is not None else ""
-                        room_oid_text = room_oid.text if room_oid is not None else ""
+                    if not dates:  # Пропускаем ресурсы без доступных дат
+                        continue
+                    
+                    # Случай 1: Есть Specialist (врач)
+                    if specialist is not None:
+                        last = specialist.find("Last_Name")
+                        first = specialist.find("First_Name")
+                        middle = specialist.find("Middle_Name")
+                        snils = specialist.find("SNILS")
                         
-                        # Используем Room_Id как идентификатор, а Room_Name или Room_Number как имя
-                        display_name = room_name_text if room_name_text else f"Кабинет {room_number_text}" if room_number_text else f"Кабинет {room_id_text}"
+                        if last is not None and first is not None and middle is not None and snils is not None:
+                            last_name = last.text or ""
+                            first_name = first.text or ""
+                            middle_name = middle.text or ""
+                            snils_text = snils.text or ""
+                            
+                            full_name = f"{last_name} {first_name[0]}.{middle_name[0]}."
+                            
+                            doctors.append({
+                                "id": snils_text,  # ID врача для следующих шагов
+                                "name": full_name,
+                                "dates": dates,
+                                "type": "specialist",  # Маркер типа ресурса
+                                "mo_oid": mo_oid_text,
+                            })
+                    
+                    # Случай 2: Есть только Room (кабинет без конкретного врача)
+                    elif room is not None:
+                        room_id = room.find("Room_Id")
+                        room_number = room.find("Room_Number")
+                        room_name = room.find("Room_Name")
+                        room_oid = room.find("Room_OID")
                         
-                        doctors.append({
-                            "id": f"ROOM_{room_id_text}", # Префикс ROOM_ для идентификации кабинета
-                            "name": display_name,
-                            "dates": dates,
-                            "type": "room",  # Маркер типа ресурса
-                            "room_id": room_id_text,  # Сохраняем Room_Id для запроса слотов
-                            "room_oid": room_oid_text,  # Сохраняем Room_OID для запроса слотов
-                        })
+                        if room_id is not None:
+                            room_id_text = room_id.text or ""
+                            room_number_text = room_number.text if room_number is not None else ""
+                            room_name_text = room_name.text if room_name is not None else ""
+                            room_oid_text = room_oid.text if room_oid is not None else ""
+                            
+                            # Используем Room_Id как идентификатор, а Room_Name или Room_Number как имя
+                            display_name = (
+                                room_name_text
+                                if room_name_text
+                                else f"Кабинет {room_number_text}" if room_number_text else f"Кабинет {room_id_text}"
+                            )
+                            
+                            doctors.append({
+                                "id": f"ROOM_{room_id_text}",  # Префикс ROOM_ для идентификации кабинета
+                                "name": display_name,
+                                "dates": dates,
+                                "type": "room",  # Маркер типа ресурса
+                                "room_id": room_id_text,  # Сохраняем Room_Id для запроса слотов
+                                "room_oid": room_oid_text,  # Сохраняем Room_OID для запроса слотов
+                                "mo_oid": mo_oid_text,
+                            })
 
         except Exception as e:
             print(f"Error parsing Doctors: {e}")

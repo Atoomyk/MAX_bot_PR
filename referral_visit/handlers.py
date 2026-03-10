@@ -365,6 +365,8 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
                 await _referral_soap_error(bot, user_id, chat_id, str(e))
                 return
             doc = next((d for d in doctors if d.get("id") == to_snils), None)
+            if doc and doc.get("mo_oid"):
+                ctx.selected_mo_oid = doc["mo_oid"]
             ctx.available_dates_cache = doc.get("dates", []) if doc else []
             if not ctx.available_dates_cache:
                 await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE, attachments=[ref_kb.kb_referral_list(ctx.referrals, ctx.ref_list_page)])
@@ -411,6 +413,10 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         ctx.selected_doctor_name = found.get("name", "")
         ctx.selected_resource_type = found.get("type", "specialist")
         ctx.available_dates_cache = found.get("dates", [])
+        # ВАЖНО: используем MO_OID подразделения ресурса для дальнейшего GetScheduleInfo
+        mo_oid_for_doc = found.get("mo_oid")
+        if mo_oid_for_doc:
+            ctx.selected_mo_oid = mo_oid_for_doc
         if found.get("type") == "room":
             ctx.selected_room_id = found.get("room_id", "")
             ctx.selected_room_oid = found.get("room_oid", "")
