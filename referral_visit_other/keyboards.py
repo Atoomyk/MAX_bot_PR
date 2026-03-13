@@ -89,3 +89,16 @@ def kb_mo_subdivision_selection(subdivisions: list[dict]):
     rows.append([get_back_button("ref_back_to_list")])
     return create_keyboard(rows)
 
+
+def kb_no_slots(back_payload: str):
+    """
+    Клавиатура при отсутствии доступного времени:
+    - выход в главное меню
+    - возврат на предыдущий шаг (back_payload).
+    """
+    buttons = [
+        [{"type": "callback", "text": "🏠 Главное меню", "payload": "back_to_main"}],
+        [get_back_button(back_payload)],
+    ]
+    return create_keyboard(buttons)
+

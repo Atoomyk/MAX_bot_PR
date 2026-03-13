@@ -232,6 +232,81 @@ async def handle_referral_other_callback(bot, user_id: int, chat_id: int, payloa
         await _show_other_patient_confirmation(bot, user_id, chat_id, ctx)
         return
 
+    if payload == "ref_back_to_list":
+        ctx.step = "OTHER_REF_LIST"
+        if not ctx.referrals:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_restart")],
+            )
+        else:
+            from referral_visit import keyboards as ref_kb_base
+            keyboard = ref_kb_base.kb_referral_list(ctx.referrals, ctx.ref_list_page)
+            await bot.send_message(
+                chat_id=chat_id,
+                text="Выберите направление:",
+                attachments=[keyboard] if keyboard else [],
+            )
+        return
+
+    if payload == "ref_back_to_doc":
+        doctors = cache.get("doctors", [])
+        ctx.step = "OTHER_DOCTOR"
+        from referral_visit import keyboards as ref_kb_base
+        if not doctors:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_back_to_list")],
+            )
+        else:
+            keyboard = ref_kb_base.kb_doctor_selection(doctors)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"Выберите врача или кабинет ({ctx.selected_spec}):",
+                attachments=[keyboard] if keyboard else [],
+            )
+        return
+
+    if payload == "ref_back_to_date":
+        dates = ctx.available_dates_cache or []
+        ctx.step = "OTHER_DATE"
+        from referral_visit import keyboards as ref_kb_base
+        if not dates:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_back_to_doc")],
+            )
+        else:
+            keyboard = ref_kb_base.kb_date_selection(dates, ctx.date_page)
+            await bot.send_message(
+                chat_id=chat_id,
+                text="Выберите дату приёма:",
+                attachments=[keyboard] if keyboard else [],
+            )
+        return
+
+    if payload == "ref_back_to_time":
+        slots = cache.get("slots", [])
+        ctx.step = "OTHER_TIME"
+        from referral_visit import keyboards as ref_kb_base
+        if not slots:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_back_to_date")],
+            )
+        else:
+            keyboard = ref_kb_base.kb_time_selection(slots, ctx.time_page)
+            await bot.send_message(
+                chat_id=chat_id,
+                text="Выберите время:",
+                attachments=[keyboard] if keyboard else [],
+            )
+        return
+
     # Выбор подразделения МО по направлению
     if payload.startswith("ref_other_mo_sub_"):
         idx_str = payload.replace("ref_other_mo_sub_", "")
@@ -439,7 +514,11 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
 
         referrals = parsed.get("referrals", [])
         if not referrals:
-            await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_restart")],
+            )
             ctx.step = "OTHER_REF_LIST"
             ctx.referrals = []
             return True
@@ -568,7 +647,11 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
         ctx.selected_doctor_name = to_name
         ctx.selected_resource_type = "specialist"
         if not ctx.selected_post_id:
-            await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_back_to_list")],
+            )
             return
         start_d, end_d = _dates_from_referral(ctx)
         await bot.send_message(chat_id=chat_id, text="🔄 Поиск доступных дат...")
@@ -589,7 +672,11 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
             ctx.selected_mo_oid = doc["mo_oid"]
         ctx.available_dates_cache = doc.get("dates", []) if doc else []
         if not ctx.available_dates_cache:
-            await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=NO_SLOTS_MESSAGE,
+                attachments=[ref_kb_other.kb_no_slots("ref_back_to_list")],
+            )
             return
         ctx.step = "OTHER_DATE"
         ctx.date_page = 0
@@ -627,7 +714,11 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
         return
 
     if not doctors:
-        await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=NO_SLOTS_MESSAGE,
+            attachments=[ref_kb_other.kb_no_slots("ref_back_to_list")],
+        )
         return
     cache["doctors"] = doctors
     ctx.selected_spec = get_specialty_name(ctx.selected_post_id)
@@ -660,7 +751,11 @@ async def _handle_select_doctor(bot, user_id: int, chat_id: int, ctx: ReferralOt
         ctx.selected_room_id = found.get("room_id", "")
         ctx.selected_room_oid = found.get("room_oid", "")
     if not ctx.available_dates_cache:
-        await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=NO_SLOTS_MESSAGE,
+            attachments=[ref_kb_other.kb_no_slots("ref_back_to_doc")],
+        )
         return
     ctx.step = "OTHER_DATE"
     ctx.date_page = 0
@@ -692,7 +787,11 @@ async def _handle_select_date(bot, user_id: int, chat_id: int, ctx: ReferralOthe
         await _soap_error(bot, user_id, chat_id, str(e))
         return
     if not slots:
-        await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=NO_SLOTS_MESSAGE,
+            attachments=[ref_kb_other.kb_no_slots("ref_back_to_date")],
+        )
         return
     cache["slots"] = slots
     ctx.available_slots_cache = slots
