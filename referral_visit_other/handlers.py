@@ -529,12 +529,26 @@ async def _handle_select_referral(bot, user_id: int, chat_id: int, ctx: Referral
         await _after_mo_selected_for_referral(bot, user_id, chat_id, ctx, cache)
         return
 
-    # Несколько подразделений — предлагаем выбор
+    # Несколько подразделений — предлагаем выбор в том же формате, что и при записи к врачу:
+    # сначала нумерованный список МО (с названием и адресом), ниже — кнопки с номерами.
     cache["mo_subdivisions"] = subdivisions
     kb = ref_kb_other.kb_mo_subdivision_selection(subdivisions)
+
+    menu_text = "🏥 Выберите подразделение медицинской организации по направлению:\n\n"
+    for i, mo in enumerate(subdivisions):
+        name = mo.get("name", "")
+        address = mo.get("address", "")
+        display = name
+        if address:
+            # Упрощённая очистка адреса: убираем лишние пробелы/запятые
+            cleaned = re.sub(r",+", ",", address)
+            cleaned = cleaned.strip(" ,")
+            display = f"{name} ({cleaned})"
+        menu_text += f"{i + 1}. {display}\n\n"
+
     await bot.send_message(
         chat_id=chat_id,
-        text="🏥 Выберите подразделение медицинской организации по направлению:",
+        text=menu_text,
         attachments=[kb] if kb else [],
     )
 
