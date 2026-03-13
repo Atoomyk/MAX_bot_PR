@@ -170,12 +170,36 @@ async def message_callback(event: MessageCallback):
                     attachments=[keyboard] if keyboard else []
                 )
                 return
+            # Показываем выбор: записать себя / записать другого (для направлений)
+            from referral_visit_other.keyboards import kb_person_choice_for_referral
+            keyboard = kb_person_choice_for_referral()
+            await event.bot.send_message(
+                chat_id=chat_id,
+                text="Кого записать по направлению?",
+                attachments=[keyboard] if keyboard else []
+            )
+            return
+
+        if payload == 'ref_person_me':
+            # Старая логика "записать себя по направлению" без изменений
             from referral_visit.handlers import start_referral_booking
             await start_referral_booking(event.bot, user_id, chat_id)
             return
 
+        if payload == 'ref_person_other':
+            from referral_visit_other.handlers import start_referral_other_booking
+            await start_referral_other_booking(event.bot, user_id, chat_id)
+            return
+
+        # --- Referral Visit routing ---
+        # Если пользователь находится в сценарии "другого по направлению",
+        # все ref_* колбэки обрабатываем в referral_visit_other.
         if payload.startswith('ref_'):
             log_user_event(user_id, "visit_referral_action", payload=payload)
+            from referral_visit_other.handlers import other_states, handle_referral_other_callback
+            if user_id in other_states:
+                await handle_referral_other_callback(event.bot, user_id, chat_id, payload)
+                return
             from referral_visit.handlers import handle_referral_callback
             await handle_referral_callback(event.bot, user_id, chat_id, payload)
             return
@@ -749,17 +773,29 @@ async def handle_message(event: MessageCreated):
         if not event.message.body:
             return
 
-        # --- Referral Visit: ввод номера направления ---
+        # --- Referral Visit: ввод номера направления и данных для другого пациента ---
         if event.message.body.text:
             try:
-                from referral_visit.handlers import handle_referral_text_input
-                from referral_visit.handlers import referral_user_states
+                # Базовый сценарий "записать себя по направлению"
+                from referral_visit.handlers import handle_referral_text_input, referral_user_states
                 if user_id in referral_user_states and referral_user_states[user_id].step == "REF_ENTER_NUMBER":
                     handled = await handle_referral_text_input(event.bot, user_id, chat_id, event.message.body.text)
                     if handled:
                         return
             except Exception as e:
                 log_system_event("referral_visit_module", "text_input_error", error=str(e), user_id=user_id)
+
+            try:
+                # Сценарий "записать другого по направлению"
+                from referral_visit_other.handlers import handle_referral_other_text_input, other_states
+                if user_id in other_states:
+                    handled_other = await handle_referral_other_text_input(
+                        event.bot, user_id, chat_id, event.message.body.text
+                    )
+                    if handled_other:
+                        return
+            except Exception as e:
+                log_system_event("referral_visit_other_module", "text_input_error", error=str(e), user_id=user_id)
 
         # --- Visit Doctor Module ---
         # Проверяем, находится ли пользователь в сценарии записи к врачу
