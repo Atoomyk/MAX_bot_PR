@@ -14,6 +14,10 @@ load_dotenv()
 SOAP_URL = os.getenv("SOAP_URL")
 SOAP_HEADERS = {"Content-Type": "text/xml; charset=utf-8"}
 
+# Параметр для включения/отключения логирования SOAP-запросов/ответов по направлению.
+# 1 / true / yes (в любом регистре) — включено, иначе выключено.
+_LOG_REFERRAL_SOAP = os.getenv("REFERRAL_SOAP_LOGGING", "1").lower() in ("1", "true", "yes")
+
 
 async def _send_request(xml_body: str, soap_action: str, user_id: int | None = None) -> str:
     """
@@ -22,11 +26,12 @@ async def _send_request(xml_body: str, soap_action: str, user_id: int | None = N
     """
     uid = user_id if user_id is not None else 0
 
-    try:
-        log_data_event(uid, "referral_soap_request", soap_action=soap_action, xml=xml_body)
-    except Exception:
-        # Логирование не должно ломать основной поток
-        pass
+    if _LOG_REFERRAL_SOAP:
+        try:
+            log_data_event(uid, "referral_soap_request", soap_action=soap_action, xml=xml_body)
+        except Exception:
+            # Логирование не должно ломать основной поток
+            pass
 
     headers = SOAP_HEADERS.copy()
     headers["SOAPAction"] = soap_action
@@ -37,17 +42,19 @@ async def _send_request(xml_body: str, soap_action: str, user_id: int | None = N
                 response_text = await response.text()
     except Exception as e:
         error_msg = str(e)
-        try:
-            log_data_event(uid, "referral_soap_error", soap_action=soap_action, error=error_msg)
-        except Exception:
-            pass
+        if _LOG_REFERRAL_SOAP:
+            try:
+                log_data_event(uid, "referral_soap_error", soap_action=soap_action, error=error_msg)
+            except Exception:
+                pass
         # Пробрасываем исключение для обработки в handlers
         raise Exception(f"SOAP connection error: {error_msg}")
 
-    try:
-        log_data_event(uid, "referral_soap_response", soap_action=soap_action, xml=response_text)
-    except Exception:
-        pass
+    if _LOG_REFERRAL_SOAP:
+        try:
+            log_data_event(uid, "referral_soap_response", soap_action=soap_action, xml=response_text)
+        except Exception:
+            pass
 
     return response_text
 
