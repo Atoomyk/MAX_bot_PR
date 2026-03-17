@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
+from phone_utils import normalize_phone_plus7
+
 load_dotenv()
 
 # Конфигурация (в реальном проекте загружать из .env)
@@ -37,12 +39,13 @@ class SoapClient:
                 raise Exception(f"SOAP connection error: {error_msg}")
 
     @staticmethod
-    async def get_patient_session(snils, oms, birthdate, fio_parts, gender, client_session_id) -> str:
+    async def get_patient_session(snils, oms, birthdate, fio_parts, gender, client_session_id, phone: str) -> str:
         """
         1. GetPatientInfoRequest
         Возвращает XML для парсинга
         """
         sex_val = "M" if gender == "Мужской" else "F"
+        phone_norm = normalize_phone_plus7(phone)
         
         xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
     <soapenv:Body>
@@ -55,6 +58,7 @@ class SoapClient:
                 <Last_Name>{fio_parts[0]}</Last_Name>
                 <Middle_Name>{fio_parts[2]}</Middle_Name>
                 <Birth_Date>{birthdate}</Birth_Date>
+                <Phone>{phone_norm}</Phone>
                 <Sex>{sex_val}</Sex> 
             </Patient_Data>
             <Pass_referral>0</Pass_referral>

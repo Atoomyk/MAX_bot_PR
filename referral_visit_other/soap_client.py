@@ -12,6 +12,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from logging_config import log_data_event
+from phone_utils import normalize_phone_plus7
 
 load_dotenv()
 
@@ -60,6 +61,7 @@ async def get_patient_session_other(
     birthdate_iso: str,
     fio_parts: list[str],
     client_session_id: str,
+    phone: str,
 ) -> str:
     """
     Авторизация пациента (другого человека) для получения Session_ID.
@@ -67,6 +69,7 @@ async def get_patient_session_other(
     Использует укороченный Patient_Data: OMS + FIO + Birth_Date, без СНИЛС и пола.
     Session_ID формируется как UUID на стороне бота и передаётся как client_session_id.
     """
+    phone_norm = normalize_phone_plus7(phone)
     xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
     <soapenv:Body>
         <GetPatientInfoRequest xmlns="http://www.rt-eu.ru/med/er/v2_0">
@@ -77,6 +80,7 @@ async def get_patient_session_other(
                 <Last_Name>{fio_parts[0]}</Last_Name>
                 <Middle_Name>{fio_parts[2]}</Middle_Name>
                 <Birth_Date>{birthdate_iso}</Birth_Date>
+                <Phone>{phone_norm}</Phone>
             </Patient_Data>
         </GetPatientInfoRequest>
     </soapenv:Body>

@@ -23,6 +23,7 @@ class ReferralUserContext:
     patient_gender: str = ""
     patient_snils: str = ""
     patient_oms: str = ""
+    patient_phone: str = ""
     return_to_confirm: bool = False
     is_from_rms: bool = False
 

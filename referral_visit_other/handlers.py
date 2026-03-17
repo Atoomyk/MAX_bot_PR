@@ -120,6 +120,7 @@ async def start_referral_other_booking(bot, user_id: int, chat_id: int):
 
     user_data = db.get_user_full_data(user_id)
     phone = user_data.get("phone", "") if user_data else ""
+    ctx.patient_phone = phone or ""
 
     if not phone:
         # Сразу ручной ввод
@@ -389,6 +390,7 @@ async def _authorize_other_and_request_ref_number(
             birthdate_iso=birth_iso,
             fio_parts=parts,
             client_session_id=ctx.client_session_id,
+            phone=ctx.patient_phone,
         )
     except Exception as e:
         await _soap_error(bot, user_id, chat_id, str(e))

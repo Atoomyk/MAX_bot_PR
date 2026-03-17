@@ -41,6 +41,7 @@ class UserContext:
     patient_gender: str = ""
     patient_snils: str = ""
     patient_oms: str = ""
+    patient_phone: str = ""
     
     # Пагинация
     spec_page: int = 0

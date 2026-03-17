@@ -8,6 +8,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from logging_config import log_data_event
+from phone_utils import normalize_phone_plus7
 
 load_dotenv()
 
@@ -66,9 +67,11 @@ async def get_patient_referrals(
     fio_parts: list,
     gender: str,
     client_session_id: str,
+    phone: str,
 ) -> str:
     """GetPatientInfo с Pass_referral=1 — возвращает направления гражданина."""
     sex_val = "M" if gender == "Мужской" else "F"
+    phone_norm = normalize_phone_plus7(phone)
     xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
     <soapenv:Body>
         <GetPatientInfoRequest xmlns="http://www.rt-eu.ru/med/er/v2_0">
@@ -80,6 +83,7 @@ async def get_patient_referrals(
                 <Last_Name>{fio_parts[0]}</Last_Name>
                 <Middle_Name>{fio_parts[2]}</Middle_Name>
                 <Birth_Date>{birthdate}</Birth_Date>
+                <Phone>{phone_norm}</Phone>
                 <Sex>{sex_val}</Sex>
             </Patient_Data>
             <Pass_referral>1</Pass_referral>

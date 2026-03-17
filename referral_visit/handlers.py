@@ -167,6 +167,7 @@ async def start_referral_booking(bot, user_id: int, chat_id: int):
     ctx.patient_gender = user_data.get("gender", "")
     ctx.patient_snils = user_data.get("snils", "")
     ctx.patient_oms = user_data.get("oms", "")
+    ctx.patient_phone = user_data.get("phone", "") or ""
 
     if not all([ctx.patient_fio, ctx.patient_birthdate, ctx.patient_gender, ctx.patient_snils, ctx.patient_oms]):
         await bot.send_message(
@@ -215,6 +216,7 @@ async def _load_referrals_and_show_list(bot, user_id: int, chat_id: int, ctx: Re
             fio_parts=parts,
             gender=ctx.patient_gender,
             client_session_id=ctx.client_session_id,
+            phone=ctx.patient_phone,
         )
     except Exception as e:
         await bot.send_message(

@@ -468,7 +468,8 @@ async def handle_callback(bot, user_id, chat_id, payload):
             birthdate='-'.join(ctx.patient_birthdate.split('.')[::-1]) if '.' in ctx.patient_birthdate else "2000-01-01",
             fio_parts=parts,
             gender=ctx.patient_gender,
-            client_session_id=getattr(ctx, 'client_session_id', str(uuid.uuid4()))
+            client_session_id=getattr(ctx, 'client_session_id', str(uuid.uuid4())),
+            phone=getattr(ctx, "patient_phone", "") or "",
         )
         session_id = SoapResponseParser.parse_session_id(xml)
         if not session_id:
@@ -497,6 +498,7 @@ async def handle_callback(bot, user_id, chat_id, payload):
             # ⚡ ЗАПРОС К API ПАЦИЕНТОВ ПО ТЕЛЕФОНУ ВЛАДЕЛЬЦА ⚡
             user_data = db.get_user_full_data(user_id)
             phone = user_data.get('phone', '') if user_data else ''
+            ctx.patient_phone = phone or ""
 
             if phone:
                 await bot.send_message(chat_id=chat_id, text="🔄 Проверяем список прикрепленных пациентов...")
@@ -627,6 +629,7 @@ async def handle_callback(bot, user_id, chat_id, payload):
                 ctx.patient_snils = user_data.get('snils', '')
                 ctx.patient_oms = user_data.get('oms', '')
                 ctx.patient_gender = user_data.get('gender', '')
+                ctx.patient_phone = user_data.get('phone', '') or ""
 
                 # Проверяем, чего не хватает
                 if not ctx.patient_gender:
@@ -680,6 +683,9 @@ async def handle_callback(bot, user_id, chat_id, payload):
             ctx.patient_snils = selected_p['snils']
             ctx.patient_oms = selected_p['oms']
             ctx.patient_gender = selected_p.get('gender')
+            if not getattr(ctx, "patient_phone", ""):
+                owner = db.get_user_full_data(user_id) or {}
+                ctx.patient_phone = owner.get("phone", "") or ""
             ctx.is_from_rms = True
 
             log_data_event(user_id, "booking_patient_selected", patient_snils=ctx.patient_snils, gender_autofilled=bool(ctx.patient_gender))
