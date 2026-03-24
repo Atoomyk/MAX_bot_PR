@@ -82,6 +82,7 @@ async def get_patient_session_other(
                 <Birth_Date>{birthdate_iso}</Birth_Date>
                 <Phone>{phone_norm}</Phone>
             </Patient_Data>
+            <Pass_referral>1</Pass_referral>
         </GetPatientInfoRequest>
     </soapenv:Body>
 </soapenv:Envelope>"""
@@ -118,23 +119,11 @@ async def get_referral_info_other(
     return await _send_request(xml, "GetReferralInfo")
 
 
-async def get_mos(session_id: str) -> str:
-    """GetMOInfoExtended для сценария направлений другого человека."""
-    xml = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-    <soapenv:Body>
-        <GetMOInfoExtendedRequest xmlns="http://www.rt-eu.ru/med/er/v2_0">
-            <Session_ID>{session_id}</Session_ID>
-            <Booking_Type>APPOINTMENT</Booking_Type>
-        </GetMOInfoExtendedRequest>
-    </soapenv:Body>
-</soapenv:Envelope>"""
-    return await _send_request(xml, "GetMOInfoExtended")
-
-
 async def get_doctors_referral(
     session_id: str,
     post_id: str,
     mo_oid: str,
+    referral_id: str,
     start_date: str,
     end_date: str,
 ) -> str:
@@ -151,6 +140,7 @@ async def get_doctors_referral(
             <MO_OID_List>
                 <MO_OID>{mo_oid}</MO_OID>
             </MO_OID_List>
+            <Referral_Id>{referral_id}</Referral_Id>
             <Start_Date_Range>{start_date}</Start_Date_Range>
             <End_Date_Range>{end_date}</End_Date_Range>
         </GetMOResourceInfoRequest>
@@ -164,6 +154,7 @@ async def get_slots_referral(
     specialist_snils: str,
     mo_oid: str,
     post_id: str,
+    referral_id: str,
     date: str,
     room_id: str | None = None,
     room_oid: str | None = None,
@@ -193,6 +184,7 @@ async def get_slots_referral(
                     <Post_Id>{post_id}</Post_Id>
                 </Post>
             </Service_Post>
+            <Referral_Id>{referral_id}</Referral_Id>
             <Start_Date_Range>{fmt_date}</Start_Date_Range>
             <End_Date_Range>{fmt_date}</End_Date_Range>
             <Start_Time_Range>00:00:00</Start_Time_Range>
@@ -214,6 +206,7 @@ async def get_slots_referral(
                     <Post_Id>{post_id}</Post_Id>
                 </Post>
             </Service_Post>
+            <Referral_Id>{referral_id}</Referral_Id>
             <Start_Date_Range>{fmt_date}</Start_Date_Range>
             <End_Date_Range>{fmt_date}</End_Date_Range>
             <Start_Time_Range>00:00:00</Start_Time_Range>

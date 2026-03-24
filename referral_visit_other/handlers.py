@@ -12,7 +12,6 @@ from referral_visit_other import keyboards as ref_kb_other
 from referral_visit_other.soap_client import (
     get_patient_session_other,
     get_referral_info_other,
-    get_mos,
     get_doctors_referral,
     get_slots_referral,
     book_appointment_referral,
@@ -20,7 +19,6 @@ from referral_visit_other.soap_client import (
 from referral_visit_other.soap_parser import (
     parse_session_id,
     parse_get_referral_info_response,
-    parse_mo_list,
     parse_doctors,
     parse_slots,
     parse_create_appointment_details,
@@ -35,6 +33,19 @@ import uuid
 
 other_states: Dict[int, ReferralOtherUserContext] = {}
 other_cache: Dict[int, Dict[str, Any]] = {}
+
+
+def _sort_referrals_by_end_date(referrals: list[dict]) -> list[dict]:
+    def _to_dt(value: str):
+        try:
+            return datetime.strptime((value or "")[:10], "%Y-%m-%d")
+        except Exception:
+            return datetime.max
+
+    return sorted(
+        referrals,
+        key=lambda r: (_to_dt(r.get("referral_end_date", "")), _to_dt(r.get("referral_start_date", ""))),
+    )
 
 
 def get_ctx(user_id: int) -> ReferralOtherUserContext:
@@ -308,22 +319,6 @@ async def handle_referral_other_callback(bot, user_id: int, chat_id: int, payloa
             )
         return
 
-    # Выбор подразделения МО по направлению
-    if payload.startswith("ref_other_mo_sub_"):
-        idx_str = payload.replace("ref_other_mo_sub_", "")
-        try:
-            idx = int(idx_str)
-            subdivisions = cache.get("mo_subdivisions", [])
-            chosen = subdivisions[idx]
-        except (ValueError, IndexError):
-            await bot.send_message(chat_id=chat_id, text="Ошибка выбора подразделения. Попробуйте снова.")
-            return
-        ctx.selected_mo_id = chosen.get("id", "")
-        ctx.selected_mo_oid = chosen.get("oid", "")
-        ctx.selected_mo_name = chosen.get("name", "")
-        await _after_mo_selected_for_referral(bot, user_id, chat_id, ctx, cache)
-        return
-
     # Остальная часть сценария (выбор направления, врача, даты, времени, подтверждение)
     if payload.startswith("ref_sel_"):
         await _handle_select_referral(bot, user_id, chat_id, ctx, cache, payload)
@@ -525,15 +520,7 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
             ctx.referrals = []
             return True
 
-        # Загрузка МО и подготовка списка направлений
-        try:
-            xml_mo = await get_mos(ctx.session_id)
-            mos = parse_mo_list(xml_mo)
-        except Exception:
-            mos = []
-        cache = get_cache(user_id)
-        cache["mos"] = mos
-        mo_by_oid = {m.get("oid"): m for m in mos if m.get("oid")}
+        referrals = _sort_referrals_by_end_date(referrals)
         for r in referrals:
             num = r.get("referral_number", r.get("referral_id", ""))
             start = (r.get("referral_start_date") or "")[:10]
@@ -544,8 +531,6 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
                 except Exception:
                     pass
             text_disp = f"Направление №{num} от {start}"
-            mo_oid = r.get("to_mo_oid", "")
-            mo_name = (mo_by_oid.get(mo_oid) or {}).get("name", "")
             spec = ""
             if r.get("post_id"):
                 spec = get_specialty_name(r["post_id"])
@@ -553,8 +538,6 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
                 spec = get_specialty_name(r["specialty_id"])
             if spec:
                 text_disp += f" ({spec})"
-            if mo_name:
-                text_disp += f" {mo_name}"
             r["display_text"] = text_disp
 
         ctx.referrals = referrals
@@ -587,51 +570,8 @@ async def _handle_select_referral(bot, user_id: int, chat_id: int, ctx: Referral
     ctx.referral_start_date = (selected.get("referral_start_date") or "")[:10]
     ctx.referral_end_date = (selected.get("referral_end_date") or "")[:10]
 
-    to_mo_oid = selected.get("to_mo_oid", "")
-    mos = cache.get("mos", [])
-    # Находим все подразделения, чей oid начинается с корневого OID
-    subdivisions = [m for m in mos if m.get("oid", "").startswith(to_mo_oid)] if to_mo_oid else []
-
-    if not subdivisions:
-        # Падаем назад к исходному OID
-        ctx.selected_mo_oid = to_mo_oid
-        mo = next((m for m in mos if m.get("oid") == to_mo_oid), None)
-        if mo:
-            ctx.selected_mo_id = mo.get("id", "")
-            ctx.selected_mo_name = mo.get("name", "")
-        await _after_mo_selected_for_referral(bot, user_id, chat_id, ctx, cache)
-        return
-
-    if len(subdivisions) == 1:
-        chosen = subdivisions[0]
-        ctx.selected_mo_id = chosen.get("id", "")
-        ctx.selected_mo_oid = chosen.get("oid", "")
-        ctx.selected_mo_name = chosen.get("name", "")
-        await _after_mo_selected_for_referral(bot, user_id, chat_id, ctx, cache)
-        return
-
-    # Несколько подразделений — предлагаем выбор в том же формате, что и при записи к врачу:
-    # сначала нумерованный список МО (с названием и адресом), ниже — кнопки с номерами.
-    cache["mo_subdivisions"] = subdivisions
-    kb = ref_kb_other.kb_mo_subdivision_selection(subdivisions)
-
-    menu_text = "🏥 Выберите подразделение медицинской организации по направлению:\n\n"
-    for i, mo in enumerate(subdivisions):
-        name = mo.get("name", "")
-        address = mo.get("address", "")
-        display = name
-        if address:
-            # Упрощённая очистка адреса: убираем лишние пробелы/запятые
-            cleaned = re.sub(r",+", ",", address)
-            cleaned = cleaned.strip(" ,")
-            display = f"{name} ({cleaned})"
-        menu_text += f"{i + 1}. {display}\n\n"
-
-    await bot.send_message(
-        chat_id=chat_id,
-        text=menu_text,
-        attachments=[kb] if kb else [],
-    )
+    ctx.selected_mo_oid = selected.get("to_mo_oid", "")
+    await _after_mo_selected_for_referral(bot, user_id, chat_id, ctx, cache)
 
 
 async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: ReferralOtherUserContext, cache):
@@ -662,6 +602,7 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
                 ctx.session_id,
                 ctx.selected_post_id,
                 ctx.selected_mo_oid,
+                ctx.selected_referral_id,
                 start_d,
                 end_d,
             )
@@ -672,6 +613,9 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
         doc = next((d for d in doctors if d.get("id") == to_snils), None)
         if doc and doc.get("mo_oid"):
             ctx.selected_mo_oid = doc["mo_oid"]
+        if doc:
+            ctx.selected_mo_name = doc.get("mo_name", "") or ctx.selected_mo_name
+            ctx.selected_mo_address = doc.get("mo_address", "") or ctx.selected_mo_address
         ctx.available_dates_cache = doc.get("dates", []) if doc else []
         if not ctx.available_dates_cache:
             await bot.send_message(
@@ -707,6 +651,7 @@ async def _after_mo_selected_for_referral(bot, user_id: int, chat_id: int, ctx: 
             ctx.session_id,
             ctx.selected_post_id,
             ctx.selected_mo_oid,
+            ctx.selected_referral_id,
             start_d,
             end_d,
         )
@@ -749,6 +694,8 @@ async def _handle_select_doctor(bot, user_id: int, chat_id: int, ctx: ReferralOt
     mo_oid_for_doc = found.get("mo_oid")
     if mo_oid_for_doc:
         ctx.selected_mo_oid = mo_oid_for_doc
+    ctx.selected_mo_name = found.get("mo_name", "") or ctx.selected_mo_name
+    ctx.selected_mo_address = found.get("mo_address", "") or ctx.selected_mo_address
     if found.get("type") == "room":
         ctx.selected_room_id = found.get("room_id", "")
         ctx.selected_room_oid = found.get("room_oid", "")
@@ -780,6 +727,7 @@ async def _handle_select_date(bot, user_id: int, chat_id: int, ctx: ReferralOthe
             specialist_snils,
             ctx.selected_mo_oid,
             ctx.selected_post_id,
+            ctx.selected_referral_id,
             date_str,
             room_id=room_id,
             room_oid=room_oid,
@@ -860,12 +808,7 @@ async def _handle_confirm_booking(bot, user_id: int, chat_id: int, ctx: Referral
         visit_time_str = details.get("visit_time") or f"{ctx.selected_date} {ctx.selected_time}:00"
         room_str = details.get("room") or ctx.selected_room or ""
         book_id_mis = details.get("book_id_mis") or ""
-        mo_address = ""
-        mos = cache.get("mos", [])
-        if mos and ctx.selected_mo_id:
-            mo_obj = next((m for m in mos if m.get("id") == ctx.selected_mo_id), None)
-            if mo_obj:
-                mo_address = mo_obj.get("address", "")
+        mo_address = ctx.selected_mo_address or ""
 
         appointment_data = {
             "Дата записи": visit_time_str,

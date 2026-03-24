@@ -13,7 +13,6 @@ from referral_visit import keyboards as ref_kb
 from referral_visit.soap_client import (
     get_patient_referrals,
     get_referral_by_number,
-    get_mos,
     get_doctors_referral,
     get_slots_referral,
     book_appointment_referral,
@@ -22,7 +21,6 @@ from referral_visit.soap_parser import (
     parse_referrals,
     parse_get_referral_info_response,
     parse_session_id,
-    parse_mo_list,
     parse_doctors,
     parse_slots,
     parse_create_appointment_details,
@@ -144,6 +142,20 @@ def _format_referral_display(r: dict, mo_name: str) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+def _sort_referrals_by_end_date(referrals: list[dict]) -> list[dict]:
+    """Сортировка по приоритету: ближайшая дата окончания, потом дата начала."""
+    def _to_dt(value: str):
+        try:
+            return datetime.strptime((value or "")[:10], "%Y-%m-%d")
+        except Exception:
+            return datetime.max
+
+    return sorted(
+        referrals,
+        key=lambda r: (_to_dt(r.get("referral_end_date", "")), _to_dt(r.get("referral_start_date", ""))),
+    )
+
+
 async def start_referral_booking(bot, user_id: int, chat_id: int):
     """Старт сценария: только запись себя, данные из БД → подтверждение → GetPatientInfo(Pass_referral=1)."""
     ctx = ReferralUserContext(user_id=user_id)
@@ -250,22 +262,9 @@ async def _load_referrals_and_show_list(bot, user_id: int, chat_id: int, ctx: Re
         ctx.referrals = []
         return
 
-    try:
-        xml_mo = await get_mos(session_id)
-        mos = parse_mo_list(xml_mo)
-    except Exception:
-        mos = []
-    cache = get_ref_cache(user_id)
-    cache["mos"] = mos
-
-    mo_by_oid = {}
-    for m in mos:
-        oid = m.get("oid", "")
-        if oid:
-            mo_by_oid[oid] = m
-
+    referrals = _sort_referrals_by_end_date(referrals)
     for r in referrals:
-        r["display_text"] = _format_referral_display(r, mo_by_oid.get(r.get("to_mo_oid", ""), {}).get("name", ""))
+        r["display_text"] = _format_referral_display(r, "")
 
     ctx.referrals = referrals
     ctx.step = "REF_LIST"
@@ -348,12 +347,6 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         ctx.selected_specialty_id = selected.get("specialty_id", "")
         ctx.selected_service_id = selected.get("service_id", "")
 
-        mos = cache.get("mos", [])
-        mo = next((m for m in mos if (m.get("oid") or "") == ctx.selected_mo_oid), None)
-        if mo:
-            ctx.selected_mo_id = mo.get("id", "")
-            ctx.selected_mo_name = mo.get("name", "")
-
         to_snils = (selected.get("to_resource_snils") or "").strip()
         to_name = (selected.get("to_resource_name") or "").strip()
         if to_snils and to_name:
@@ -370,7 +363,14 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
             start_d, end_d = _referral_dates_start_end(ctx)
             await bot.send_message(chat_id=chat_id, text="🔄 Поиск доступных дат...")
             try:
-                xml_res = await get_doctors_referral(ctx.session_id, ctx.selected_post_id, ctx.selected_mo_oid, start_d, end_d)
+                xml_res = await get_doctors_referral(
+                    ctx.session_id,
+                    ctx.selected_post_id,
+                    ctx.selected_mo_oid,
+                    ctx.selected_referral_id,
+                    start_d,
+                    end_d,
+                )
                 doctors = parse_doctors(xml_res)
             except Exception as e:
                 await _referral_soap_error(bot, user_id, chat_id, str(e))
@@ -378,6 +378,9 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
             doc = next((d for d in doctors if d.get("id") == to_snils), None)
             if doc and doc.get("mo_oid"):
                 ctx.selected_mo_oid = doc["mo_oid"]
+            if doc:
+                ctx.selected_mo_name = doc.get("mo_name", "") or ctx.selected_mo_name
+                ctx.selected_mo_address = doc.get("mo_address", "") or ctx.selected_mo_address
             ctx.available_dates_cache = doc.get("dates", []) if doc else []
             if not ctx.available_dates_cache:
                 await bot.send_message(chat_id=chat_id, text=NO_SLOTS_MESSAGE, attachments=[ref_kb.kb_referral_list(ctx.referrals, ctx.ref_list_page)])
@@ -399,7 +402,14 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         start_d, end_d = _referral_dates_start_end(ctx)
         await bot.send_message(chat_id=chat_id, text="🔄 Поиск врачей и кабинетов...")
         try:
-            xml_res = await get_doctors_referral(ctx.session_id, ctx.selected_post_id, ctx.selected_mo_oid, start_d, end_d)
+            xml_res = await get_doctors_referral(
+                ctx.session_id,
+                ctx.selected_post_id,
+                ctx.selected_mo_oid,
+                ctx.selected_referral_id,
+                start_d,
+                end_d,
+            )
             doctors = parse_doctors(xml_res)
         except Exception as e:
             await _referral_soap_error(bot, user_id, chat_id, str(e))
@@ -428,6 +438,8 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
         mo_oid_for_doc = found.get("mo_oid")
         if mo_oid_for_doc:
             ctx.selected_mo_oid = mo_oid_for_doc
+        ctx.selected_mo_name = found.get("mo_name", "") or ctx.selected_mo_name
+        ctx.selected_mo_address = found.get("mo_address", "") or ctx.selected_mo_address
         if found.get("type") == "room":
             ctx.selected_room_id = found.get("room_id", "")
             ctx.selected_room_oid = found.get("room_oid", "")
@@ -469,6 +481,7 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
                 specialist_snils,
                 ctx.selected_mo_oid,
                 ctx.selected_post_id,
+                ctx.selected_referral_id,
                 date_str,
                 room_id=room_id,
                 room_oid=room_oid,
@@ -553,11 +566,7 @@ async def handle_referral_callback(bot, user_id: int, chat_id: int, payload: str
             visit_time_str = details.get("visit_time") or f"{ctx.selected_date} {ctx.selected_time}:00"
             room_str = details.get("room") or ctx.selected_room or ""
             book_id_mis = details.get("book_id_mis") or ""
-            mo_address = ""
-            if cache.get("mos"):
-                mo_obj = next((m for m in cache["mos"] if m.get("id") == ctx.selected_mo_id), None)
-                if mo_obj:
-                    mo_address = mo_obj.get("address", "")
+            mo_address = ctx.selected_mo_address or ""
 
             appointment_data = {
                 "Дата записи": visit_time_str,
@@ -656,16 +665,9 @@ async def handle_referral_text_input(bot, user_id: int, chat_id: int, text: str)
         ctx.referrals = []
         return True
 
-    try:
-        xml_mo = await get_mos(ctx.session_id)
-        mos = parse_mo_list(xml_mo)
-    except Exception:
-        mos = []
-    cache = get_ref_cache(user_id)
-    cache["mos"] = mos
-    mo_by_oid = {m.get("oid"): m for m in mos if m.get("oid")}
+    referrals = _sort_referrals_by_end_date(referrals)
     for r in referrals:
-        r["display_text"] = _format_referral_display(r, (mo_by_oid.get(r.get("to_mo_oid", "")) or {}).get("name", ""))
+        r["display_text"] = _format_referral_display(r, "")
     ctx.referrals = referrals
     ctx.step = "REF_LIST"
     ctx.ref_list_page = 0

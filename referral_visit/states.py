@@ -37,6 +37,7 @@ class ReferralUserContext:
     selected_mo_id: str = ""
     selected_mo_oid: str = ""
     selected_mo_name: str = ""
+    selected_mo_address: str = ""
     selected_post_id: str = ""
     selected_spec: str = ""
     selected_specialty_id: str = ""

@@ -63,33 +63,6 @@ def kb_enter_referral_number_back():
     return create_keyboard(buttons)
 
 
-def kb_mo_subdivision_selection(subdivisions: list[dict]):
-    """
-    Меню выбора подразделения МО по направлению.
-    subdivisions: список словарей МО (id, name, oid, address).
-    """
-    if not subdivisions:
-        return None
-    rows: list[list[dict]] = []
-    for idx, m in enumerate(subdivisions):
-        name = m.get("name", "")
-        addr = m.get("address", "")
-        text = name
-        if addr:
-            text = f"{name} ({addr})"
-        rows.append(
-            [
-                {
-                    "type": "callback",
-                    "text": str(idx + 1),
-                    "payload": f"ref_other_mo_sub_{idx}",
-                }
-            ]
-        )
-    rows.append([get_back_button("ref_back_to_list")])
-    return create_keyboard(rows)
-
-
 def kb_no_slots(back_payload: str):
     """
     Клавиатура при отсутствии доступного времени:

@@ -181,6 +181,10 @@ def parse_doctors(xml_content: str) -> List[Dict[str, str]]:
             mo_node = mo_available.find("MO")
             mo_oid_el = mo_node.find("MO_OID") if mo_node is not None else None
             mo_oid_text = (mo_oid_el.text or "").strip() if mo_oid_el is not None else ""
+            mo_name_el = mo_node.find("MO_Name") if mo_node is not None else None
+            mo_name_text = (mo_name_el.text or "").strip() if mo_name_el is not None else ""
+            mo_address_el = mo_node.find("MO_Address") if mo_node is not None else None
+            mo_address_text = (mo_address_el.text or "").strip() if mo_address_el is not None else ""
 
             for resource in mo_available.findall(".//Resource"):
                 specialist = resource.find("Specialist")
@@ -191,6 +195,14 @@ def parse_doctors(xml_content: str) -> List[Dict[str, str]]:
                 if avail_dates is not None:
                     for d in avail_dates.findall("Available_Date"):
                         raw_date = (d.text or "")[:10]
+                        if not raw_date:
+                            continue
+                        formatted_date = f"{raw_date[8:10]}.{raw_date[5:7]}.{raw_date[0:4]}"
+                        dates.append(formatted_date)
+                else:
+                    for d in resource.findall("Available_Date"):
+                        dt_node = d.find("Nearest_DateTime")
+                        raw_date = ((dt_node.text or "") if dt_node is not None else "")[:10]
                         if not raw_date:
                             continue
                         formatted_date = f"{raw_date[8:10]}.{raw_date[5:7]}.{raw_date[0:4]}"
@@ -220,6 +232,8 @@ def parse_doctors(xml_content: str) -> List[Dict[str, str]]:
                                 "dates": dates,
                                 "type": "specialist",
                                 "mo_oid": mo_oid_text,
+                                "mo_name": mo_name_text,
+                                "mo_address": mo_address_text,
                             }
                         )
 
@@ -250,6 +264,8 @@ def parse_doctors(xml_content: str) -> List[Dict[str, str]]:
                                 "room_id": room_id_text,
                                 "room_oid": room_oid_text,
                                 "mo_oid": mo_oid_text,
+                                "mo_name": mo_name_text,
+                                "mo_address": mo_address_text,
                             }
                         )
     except Exception as e:
