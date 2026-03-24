@@ -18,6 +18,7 @@ from referral_visit_other.soap_client import (
 )
 from referral_visit_other.soap_parser import (
     parse_session_id,
+    parse_referrals,
     parse_get_referral_info_response,
     parse_doctors,
     parse_slots,
@@ -244,6 +245,15 @@ async def handle_referral_other_callback(bot, user_id: int, chat_id: int, payloa
         await _show_other_patient_confirmation(bot, user_id, chat_id, ctx)
         return
 
+    if payload == "ref_find_by_number":
+        ctx.step = "OTHER_ENTER_REF_NUMBER"
+        await bot.send_message(
+            chat_id=chat_id,
+            text="Введите номер направления (только цифры с бланка).",
+            attachments=[ref_kb_other.kb_enter_referral_number_back("ref_back_to_list")],
+        )
+        return
+
     if payload == "ref_back_to_list":
         ctx.step = "OTHER_REF_LIST"
         if not ctx.referrals:
@@ -404,12 +414,47 @@ async def _authorize_other_and_request_ref_number(
     ctx.session_created_at = datetime.now()
     ctx.update_activity()
     log_data_event(user_id, "referral_other_auth_success", session_id=session_id)
+    # Новый UX: сначала используем направления из GetPatientInfo, ручной ввод номера — только fallback.
+    referrals = parse_referrals(xml)
+    if referrals:
+        referrals = _sort_referrals_by_end_date(referrals)
+        for r in referrals:
+            num = r.get("referral_number", r.get("referral_id", ""))
+            start = (r.get("referral_start_date") or "")[:10]
+            if start:
+                try:
+                    dt_obj = datetime.strptime(start, "%Y-%m-%d")
+                    start = dt_obj.strftime("%d.%m.%Y")
+                except Exception:
+                    pass
+            text_disp = f"Направление №{num} от {start}"
+            spec = ""
+            if r.get("post_id"):
+                spec = get_specialty_name(r["post_id"])
+            elif r.get("specialty_id"):
+                spec = get_specialty_name(r["specialty_id"])
+            if spec:
+                text_disp += f" ({spec})"
+            r["display_text"] = text_disp
+
+        ctx.referrals = referrals
+        ctx.step = "OTHER_REF_LIST"
+        ctx.ref_list_page = 0
+        msg = "📄 Выберите направление для записи:\n\n"
+        for i, r in enumerate(referrals[:10], 1):
+            msg += f"{i}. {r.get('display_text', r.get('referral_number', ''))}\n\n"
+        if len(referrals) > 10:
+            msg += "..."
+        from referral_visit import keyboards as ref_kb_base
+        kb_list = ref_kb_base.kb_referral_list(referrals, 0)
+        await bot.send_message(chat_id=chat_id, text=msg, attachments=[kb_list])
+        return
 
     ctx.step = "OTHER_ENTER_REF_NUMBER"
     await bot.send_message(
         chat_id=chat_id,
-        text="Введите номер направления (только цифры с бланка).",
-        attachments=[ref_kb_other.kb_enter_referral_number_back()],
+        text="Направления не найдены автоматически. Введите номер направления (только цифры с бланка).",
+        attachments=[ref_kb_other.kb_enter_referral_number_back("ref_back_to_other_patient")],
     )
 
 
@@ -470,7 +515,7 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
             await bot.send_message(
                 chat_id=chat_id,
                 text="Введите номер направления (цифры с бланка).",
-                attachments=[ref_kb_other.kb_enter_referral_number_back()],
+                attachments=[ref_kb_other.kb_enter_referral_number_back("ref_back_to_list")],
             )
             return True
 
@@ -501,7 +546,7 @@ async def handle_referral_other_text_input(bot, user_id: int, chat_id: int, text
             await bot.send_message(
                 chat_id=chat_id,
                 text="❌ Направление не найдено или недоступно. Проверьте номер и данные пациента.",
-                attachments=[ref_kb_other.kb_enter_referral_number_back()],
+                attachments=[ref_kb_other.kb_enter_referral_number_back("ref_back_to_list")],
             )
 
             if code == "SESSION_TIMED_OUT":

@@ -55,10 +55,10 @@ def kb_confirm_other_patient():
     return create_keyboard(buttons)
 
 
-def kb_enter_referral_number_back():
+def kb_enter_referral_number_back(back_payload: str = "ref_back_to_other_patient"):
     """Кнопка 'назад' при вводе номера направления."""
     buttons = [
-        [get_back_button("ref_back_to_other_patient")],
+        [get_back_button(back_payload)],
     ]
     return create_keyboard(buttons)
 

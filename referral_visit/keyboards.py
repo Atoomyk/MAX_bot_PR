@@ -28,6 +28,7 @@ def kb_referral_list(referrals: list, page: int = 0, page_size: int = 5) -> obje
         nav.append({"type": "callback", "text": "След. ➡️", "payload": f"ref_list_page_{page + 1}"})
     if nav:
         buttons.append(nav)
+    buttons.append([{"type": "callback", "text": "🔍 Ввести номер направления", "payload": "ref_find_by_number"}])
     buttons.append([get_back_button("back_to_main")])
     return create_keyboard(buttons)
 
