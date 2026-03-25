@@ -4,7 +4,7 @@ import asyncio
 
 from bot_config import (
     bot, dp, WEBHOOK_MODE, WEBHOOK_PORT,
-    init_sync_service, init_tmk_service, reminder_handler
+    init_sync_service, init_tmk_service, init_mis_health_guard, reminder_handler
 )
 import bot_config
 # Импортируем обработчики для регистрации
@@ -22,7 +22,7 @@ reminder_handler.send_other_options_menu = send_other_options_menu
 
 async def main():
     """Главная функция запуска бота"""
-    global keepalive_task, chat_cleanup_task, booking_cleanup_task, tmk_server_task, tmk_reminder_task
+    global keepalive_task, chat_cleanup_task, booking_cleanup_task, tmk_server_task, tmk_reminder_task, mis_health_task
 
     log_system_event("bot", "starting", webhook_mode=WEBHOOK_MODE, port=WEBHOOK_PORT)
 
@@ -41,6 +41,14 @@ async def main():
     
     # Инициализация сервиса ТМК
     init_tmk_service()
+
+    # Инициализация и запуск health-check МИС
+    init_mis_health_guard()
+    mis_health_task = None
+    if bot_config.mis_health_guard:
+        await bot_config.mis_health_guard.bootstrap()
+        mis_health_task = asyncio.create_task(bot_config.mis_health_guard.run())
+        log_system_event("mis_health", "worker_started")
     
     # Сохранение ссылок на ТМК компоненты для обработчиков
     if bot_config.tmk_database:
@@ -84,7 +92,7 @@ async def main():
 
     if not webhook_success:
         log_system_event("bot", "webhook_setup_failed")
-        await stop_all_tasks(keepalive_task, chat_cleanup_task, booking_cleanup_task, notification_task)
+        await stop_all_tasks(keepalive_task, chat_cleanup_task, booking_cleanup_task, notification_task, mis_health_task)
         return
 
     log_system_event("bot", "webhook_server_starting", port=WEBHOOK_PORT)
@@ -126,6 +134,10 @@ async def main():
             except asyncio.CancelledError:
                 pass
             log_system_event("tmk", "api_server_stopped")
+
+        if bot_config.mis_health_guard:
+            bot_config.mis_health_guard.stop()
+            log_system_event("mis_health", "worker_stopped")
 
 
 if __name__ == "__main__":

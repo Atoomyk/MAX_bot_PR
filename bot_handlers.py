@@ -20,6 +20,60 @@ from my_appointments.service import send_my_appointments
 
 # --- ОБРАБОТЧИКИ СОБЫТИЙ ---
 
+MIS_BLOCKED_CALLBACK_PREFIXES = (
+    "doc_",
+    "ref_",
+    "view_appointment:",
+    "cancel_appointment:",
+    "cancel_appointment_confirm:",
+)
+MIS_BLOCKED_CALLBACK_EXACT = {
+    "start_visit_doctor",
+    "start_visit_referral",
+    "my_appointments",
+    "view_appointments_list",
+    "ref_person_me",
+    "ref_person_other",
+}
+SUPPORT_CALLBACK_PREFIXES = ("start_chat:",)
+SUPPORT_CALLBACK_EXACT = {
+    "support_request",
+    "support_connect_operator",
+    "support_wait_in_queue",
+    "support_exit_to_menu",
+}
+
+
+def _is_support_payload(payload: str) -> bool:
+    if payload in SUPPORT_CALLBACK_EXACT:
+        return True
+    return payload.startswith(SUPPORT_CALLBACK_PREFIXES)
+
+
+def _is_mis_payload(payload: str) -> bool:
+    if payload in MIS_BLOCKED_CALLBACK_EXACT:
+        return True
+    return payload.startswith(MIS_BLOCKED_CALLBACK_PREFIXES)
+
+
+def _is_user_in_support_flow(user_id: int) -> bool:
+    if user_id in support_handler.active_chats:
+        return True
+    return any(item.get("user_id") == user_id for item in support_handler.waiting_queue)
+
+
+async def _block_if_mis_unavailable(bot_instance, user_id: int, chat_id: int, source: str) -> bool:
+    """Проверяет доступность МИС и уведомляет пользователя при блокировке сценария."""
+    from bot_config import mis_health_guard  # ленивый импорт
+
+    if not mis_health_guard:
+        return False
+    if mis_health_guard.is_mis_available():
+        return False
+
+    await mis_health_guard.notify_user_mis_unavailable(chat_id=chat_id, user_id=user_id, source=source)
+    return True
+
 async def send_welcome_message(bot, chat_id):
     """Отправляет приветственное сообщение с картинкой"""
     keyboard = create_keyboard([[
@@ -111,6 +165,17 @@ async def message_callback(event: MessageCallback):
              db.update_last_chat_id(user_id, chat_id)
 
         payload = event.callback.payload
+
+        # Guard по доступности МИС: блокируем только МИС-сценарии (кроме поддержки).
+        if _is_mis_payload(payload) and not _is_support_payload(payload):
+            blocked = await _block_if_mis_unavailable(
+                event.bot,
+                user_id,
+                chat_id,
+                source=f"callback:{payload}",
+            )
+            if blocked:
+                return
 
         # --- ТМК Module ---
         if payload.startswith('tmk_consent_'):
@@ -773,12 +838,24 @@ async def handle_message(event: MessageCreated):
         if not event.message.body:
             return
 
+        # Поддержку не блокируем при недоступности МИС.
+        in_support_flow = _is_user_in_support_flow(user_id)
+
         # --- Referral Visit: ввод номера направления и данных для другого пациента ---
         if event.message.body.text:
             try:
                 # Базовый сценарий "записать себя по направлению"
                 from referral_visit.handlers import handle_referral_text_input, referral_user_states
                 if user_id in referral_user_states and referral_user_states[user_id].step == "REF_ENTER_NUMBER":
+                    if not in_support_flow:
+                        blocked = await _block_if_mis_unavailable(
+                            event.bot,
+                            user_id,
+                            chat_id,
+                            source="message:referral_text",
+                        )
+                        if blocked:
+                            return
                     handled = await handle_referral_text_input(event.bot, user_id, chat_id, event.message.body.text)
                     if handled:
                         return
@@ -789,6 +866,15 @@ async def handle_message(event: MessageCreated):
                 # Сценарий "записать другого по направлению"
                 from referral_visit_other.handlers import handle_referral_other_text_input, other_states
                 if user_id in other_states:
+                    if not in_support_flow:
+                        blocked = await _block_if_mis_unavailable(
+                            event.bot,
+                            user_id,
+                            chat_id,
+                            source="message:referral_other_text",
+                        )
+                        if blocked:
+                            return
                     handled_other = await handle_referral_other_text_input(
                         event.bot, user_id, chat_id, event.message.body.text
                     )
@@ -804,6 +890,15 @@ async def handle_message(event: MessageCreated):
                 # Используем user_id для контекста
                 ctx = await get_or_create_context(user_id)
                 if ctx.step != "INIT":
+                    if not in_support_flow:
+                        blocked = await _block_if_mis_unavailable(
+                            event.bot,
+                            user_id,
+                            chat_id,
+                            source="message:doctor_text",
+                        )
+                        if blocked:
+                            return
                     text_val = event.message.body.text
                     if text_val.lower() in ['/start', 'отмена', 'стоп', 'выйти']:
                         ctx.step = "INIT"

@@ -14,6 +14,7 @@ from maxapi.types import (
 from maxapi.utils.inline_keyboard import AttachmentType
 
 from logging_config import setup_logging, log_system_event
+from health_check_MIS import MisHealthGuard
 
 # Настройка логирования ДО импорта других модулей
 setup_logging()
@@ -41,6 +42,12 @@ if ADMIN_ID:
 
 # URL внешней системы МИС
 MIS_API_URL = os.getenv("MIS_API_URL")
+MIS_HEALTHCHECK_URL = os.getenv("MIS_HEALTHCHECK_URL")
+MIS_HEALTHCHECK_INTERVAL_SEC = int(os.getenv("MIS_HEALTHCHECK_INTERVAL_SEC", "30"))
+MIS_HEALTHCHECK_TIMEOUT_SEC = int(os.getenv("MIS_HEALTHCHECK_TIMEOUT_SEC", "2"))
+MIS_HEALTHCHECK_FAIL_THRESHOLD = int(os.getenv("MIS_HEALTHCHECK_FAIL_THRESHOLD", "3"))
+MIS_HEALTHCHECK_SUCCESS_THRESHOLD = int(os.getenv("MIS_HEALTHCHECK_SUCCESS_THRESHOLD", "3"))
+MIS_ADMIN_DOWN_COOLDOWN_SEC = int(os.getenv("MIS_ADMIN_DOWN_COOLDOWN_SEC", "900"))
 
 # Настройки для ТМК интеграции
 MIS_API_TOKEN = os.getenv("MIS_API_TOKEN")
@@ -90,6 +97,7 @@ tmk_database = None
 tmk_reminder_service = None
 tmk_app = None
 tmk_bot = None
+mis_health_guard: Optional[MisHealthGuard] = None
 
 
 def init_sync_service():
@@ -136,6 +144,31 @@ def init_tmk_service():
         
     except Exception as e:
         log_system_event("tmk", "init_error", error=str(e))
+
+
+def init_mis_health_guard():
+    """Инициализирует сервис health-check доступности МИС."""
+    global mis_health_guard
+    try:
+        mis_health_guard = MisHealthGuard(
+            bot=bot,
+            admin_id=ADMIN_ID,
+            healthcheck_url=MIS_HEALTHCHECK_URL,
+            check_interval_sec=MIS_HEALTHCHECK_INTERVAL_SEC,
+            timeout_sec=MIS_HEALTHCHECK_TIMEOUT_SEC,
+            fail_threshold=MIS_HEALTHCHECK_FAIL_THRESHOLD,
+            success_threshold=MIS_HEALTHCHECK_SUCCESS_THRESHOLD,
+            admin_down_cooldown_sec=MIS_ADMIN_DOWN_COOLDOWN_SEC,
+        )
+        log_system_event(
+            "mis_health",
+            "initialized",
+            url=MIS_HEALTHCHECK_URL or "not_configured",
+            interval=MIS_HEALTHCHECK_INTERVAL_SEC,
+            timeout=MIS_HEALTHCHECK_TIMEOUT_SEC,
+        )
+    except Exception as e:
+        log_system_event("mis_health", "init_error", error=str(e))
 
 
 # Инициализация обработчиков
