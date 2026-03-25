@@ -24,41 +24,57 @@ class MisHealthGuard:
         admin_id: Optional[int],
         healthcheck_url: Optional[str],
         check_interval_sec: int = 30,
+        fast_check_interval_sec: int = 2,
         timeout_sec: int = 2,
         fail_threshold: int = 3,
         success_threshold: int = 3,
-        admin_down_cooldown_sec: int = 900,
+        admin_down_cooldown_sec: int = 300,
     ) -> None:
         self.bot = bot
         self.admin_id = admin_id
         self.healthcheck_url = (healthcheck_url or "").strip()
         self.check_interval_sec = max(1, int(check_interval_sec))
+        self.fast_check_interval_sec = max(1, int(fast_check_interval_sec))
         self.timeout_sec = max(1, int(timeout_sec))
         self.fail_threshold = max(1, int(fail_threshold))
         self.success_threshold = max(1, int(success_threshold))
         self.admin_down_cooldown_sec = max(1, int(admin_down_cooldown_sec))
 
         # Fail-closed: до подтвержденного восстановления считаем МИС недоступной.
+        # Важно: user-block и "подтвержденное состояние" разделены:
+        # - _is_available: доступность для пользовательских МИС-сценариев
+        # - _confirmed_state: подтвержденный статус канала для логов/уведомлений админа
         self._is_available = False
+        self._confirmed_state = "UNKNOWN"  # UNKNOWN | UP | DOWN
         self._consecutive_fail = 0
         self._consecutive_success = 0
         self._last_error = "initial_state"
         self._last_down_notification_ts = 0.0
         self._running = True
+        self._fast_mode = False
 
     async def bootstrap(self) -> None:
         """Быстрая инициализация состояния до старта вебхука."""
         if not self.healthcheck_url:
             self._last_error = "MIS_HEALTHCHECK_URL is missing"
-            self._transition_to_down_if_needed(self._last_error)
+            # Fail-closed: блокируем пользователей сразу, подтверждаем DOWN и уведомляем админа.
+            self._is_available = False
+            self._consecutive_fail = self.fail_threshold
+            await self._confirm_down(self._last_error)
             return
 
-        for _ in range(self.success_threshold):
+        # Быстрый прогрев для подтверждения начального состояния.
+        attempts = max(self.fail_threshold, self.success_threshold)
+        self._fast_mode = True
+        for idx in range(attempts):
             success, details = await self._probe_once()
             await self._process_probe_result(success, details)
-            if self._is_available:
+            # Останавливаем bootstrap после первого подтвержденного состояния.
+            if self._confirmed_state in ("UP", "DOWN"):
                 break
-            await asyncio.sleep(0.1)
+            if idx < attempts - 1:
+                await asyncio.sleep(self.fast_check_interval_sec)
+        self._fast_mode = False
 
     async def run(self) -> None:
         """Фоновый воркер health-check."""
@@ -66,13 +82,15 @@ class MisHealthGuard:
             try:
                 success, details = await self._probe_once()
                 await self._process_probe_result(success, details)
-                await asyncio.sleep(self.check_interval_sec)
+                sleep_for = self.fast_check_interval_sec if self._fast_mode else self.check_interval_sec
+                await asyncio.sleep(sleep_for)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._last_error = f"health_worker_exception: {e}"
                 await self._process_probe_result(False, self._last_error)
-                await asyncio.sleep(self.check_interval_sec)
+                sleep_for = self.fast_check_interval_sec if self._fast_mode else self.check_interval_sec
+                await asyncio.sleep(sleep_for)
 
     def stop(self) -> None:
         self._running = False
@@ -124,37 +142,50 @@ class MisHealthGuard:
         if success:
             self._consecutive_success += 1
             self._consecutive_fail = 0
-            if not self._is_available and self._consecutive_success >= self.success_threshold:
+            # Если МИС ранее была подтвержденно DOWN и появился первый успех —
+            # запускаем быстрые проверки до подтверждения восстановления.
+            if self._confirmed_state == "DOWN":
+                self._fast_mode = True
+
+            # Разблокировка пользователя и подтверждение UP — только после 3 подряд успехов.
+            if self._consecutive_success >= self.success_threshold:
                 self._is_available = True
                 self._last_error = ""
-                log_system_event("mis_health", "mis_available", message="МИС ДОСТУПНА - 200 OK")
-                await self._send_admin_up_notification()
+                await self._confirm_up()
+                self._fast_mode = False
             return
 
         self._consecutive_fail += 1
         self._consecutive_success = 0
         self._last_error = details
+        # Блокируем пользователей сразу после первого fail.
+        self._is_available = False
+        # После первого fail ускоряем проверки для подтверждения DOWN.
+        self._fast_mode = True
         if self._consecutive_fail >= self.fail_threshold:
-            self._transition_to_down_if_needed(details)
-            await self._send_admin_down_notification()
+            await self._confirm_down(details)
+            self._fast_mode = False
 
-    def _transition_to_down_if_needed(self, details: str) -> None:
-        if self._is_available:
-            self._is_available = False
+    async def _confirm_down(self, details: str) -> None:
+        """Подтверждает состояние DOWN (3 подряд fail), логирует и уведомляет админа."""
+        if self._confirmed_state != "DOWN":
+            self._confirmed_state = "DOWN"
             log_system_event(
                 "mis_health",
                 "mis_unavailable",
                 message=f"МИС НЕ ДОСТУПНА - ошибка: {details}",
             )
-            return
+        await self._send_admin_down_notification()
 
-        # Лог перехода DOWN пишем только один раз, даже если бот стартует сразу в DOWN.
-        if self._consecutive_fail == self.fail_threshold:
-            log_system_event(
-                "mis_health",
-                "mis_unavailable",
-                message=f"МИС НЕ ДОСТУПНА - ошибка: {details}",
-            )
+    async def _confirm_up(self) -> None:
+        """Подтверждает состояние UP (3 подряд success), логирует и при необходимости уведомляет админа."""
+        previous_state = self._confirmed_state
+        if self._confirmed_state != "UP":
+            self._confirmed_state = "UP"
+            log_system_event("mis_health", "mis_available", message="МИС ДОСТУПНА - 200 OK")
+        # Сообщение "МИС снова доступен" отправляем только после восстановления из DOWN.
+        if previous_state == "DOWN":
+            await self._send_admin_up_notification()
 
     async def _send_admin_down_notification(self) -> None:
         admin_chat_id = self._get_admin_chat_id()
