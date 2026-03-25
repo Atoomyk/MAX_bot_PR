@@ -157,21 +157,44 @@ class MisHealthGuard:
             )
 
     async def _send_admin_down_notification(self) -> None:
-        if not self.admin_id:
+        admin_chat_id = self._get_admin_chat_id()
+        if not admin_chat_id:
             return
         now = time.time()
         if now - self._last_down_notification_ts < self.admin_down_cooldown_sec:
             return
         try:
-            await self.bot.send_message(chat_id=self.admin_id, text=self.ADMIN_DOWN_TEXT)
+            await self.bot.send_message(chat_id=admin_chat_id, text=self.ADMIN_DOWN_TEXT)
             self._last_down_notification_ts = now
         except Exception as e:
             log_system_event("mis_health", "admin_down_notify_failed", error=str(e))
 
     async def _send_admin_up_notification(self) -> None:
-        if not self.admin_id:
+        admin_chat_id = self._get_admin_chat_id()
+        if not admin_chat_id:
             return
         try:
-            await self.bot.send_message(chat_id=self.admin_id, text=self.ADMIN_UP_TEXT)
+            await self.bot.send_message(chat_id=admin_chat_id, text=self.ADMIN_UP_TEXT)
         except Exception as e:
             log_system_event("mis_health", "admin_up_notify_failed", error=str(e))
+
+    def _get_admin_chat_id(self) -> Optional[int]:
+        """Возвращает chat_id администратора по его user_id."""
+        if not self.admin_id:
+            return None
+        try:
+            # Локальный импорт, чтобы не создавать лишних циклических зависимостей.
+            from user_database import db
+
+            admin_chat_id = db.get_last_chat_id(self.admin_id)
+            if not admin_chat_id:
+                log_system_event(
+                    "mis_health",
+                    "admin_chat_id_not_found",
+                    admin_id=self.admin_id,
+                )
+                return None
+            return int(admin_chat_id)
+        except Exception as e:
+            log_system_event("mis_health", "admin_chat_id_lookup_failed", error=str(e), admin_id=self.admin_id)
+            return None
