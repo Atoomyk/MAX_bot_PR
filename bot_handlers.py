@@ -15,7 +15,7 @@ from bot_utils import (
 from logging_config import log_user_event, log_system_event, log_security_event
 from visit_a_doctor.handlers import start_booking, handle_callback as handle_doctor_callback, handle_text_input as handle_doctor_text, get_or_create_context
 from visit_a_doctor.states import UserContext as DoctorUserContext
-from my_appointments.service import send_my_appointments
+from my_appointments.service import send_my_appointments, handle_my_appointments_callback
 
 
 # --- ОБРАБОТЧИКИ СОБЫТИЙ ---
@@ -26,6 +26,9 @@ MIS_BLOCKED_CALLBACK_PREFIXES = (
     "view_appointment:",
     "cancel_appointment:",
     "cancel_appointment_confirm:",
+    "myapps_",
+    "cancel_mis:",
+    "cancel_mis_confirm:",
 )
 MIS_BLOCKED_CALLBACK_EXACT = {
     "start_visit_doctor",
@@ -204,18 +207,13 @@ async def message_callback(event: MessageCallback):
 
         if payload == 'my_appointments':
             log_user_event(user_id, "my_appointments_opened")
-            if not db.is_user_registered(user_id):
-                keyboard = create_keyboard([[
-                    {'type': 'callback', 'text': 'Начать регистрацию', 'payload': "start_continue"}
-                ]])
-                await event.bot.send_message(
-                    chat_id=chat_id,
-                    text="❌ Для доступа к записям необходима регистрация.",
-                    attachments=[keyboard] if keyboard else []
-                )
-                return
             await send_my_appointments(event.bot, user_id, chat_id)
             return
+
+        if payload.startswith("myapps_") or payload.startswith("cancel_mis:") or payload.startswith("cancel_mis_confirm:"):
+            handled_myapps = await handle_my_appointments_callback(event.bot, user_id, chat_id, payload)
+            if handled_myapps:
+                return
             
         if payload.startswith('doc_'):
             log_user_event(user_id, "visit_doctor_action", payload=payload)
