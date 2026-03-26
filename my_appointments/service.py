@@ -18,6 +18,7 @@ load_dotenv()
 
 SOAP_URL = os.getenv("SOAP_URL")
 SOAP_URL_PATIENT_ID = os.getenv("SOAP_URL_PatientID")
+MY_APPOINTMENTS_LOGGING = os.getenv("MY_APPOINTMENTS_LOGGING", "0")
 PAGE_SIZE = 5
 
 _sessions: Dict[int, Dict[str, Any]] = {}
@@ -25,6 +26,20 @@ _sessions: Dict[int, Dict[str, Any]] = {}
 
 def _norm(s: Any) -> str:
     return str(s or "").strip()
+
+
+def _is_myapps_logging_enabled() -> bool:
+    return _norm(MY_APPOINTMENTS_LOGGING) == "1"
+
+
+def _log_mis_io(event: str, **kwargs: Any) -> None:
+    if not _is_myapps_logging_enabled():
+        return
+    try:
+        log_system_event("my_appointments", event, **kwargs)
+    except Exception:
+        # Логирование не должно ломать основной сценарий
+        pass
 
 
 def _normalize_birth_date(raw: str) -> str:
@@ -64,7 +79,7 @@ def _is_same_patient(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         return True
     return (
         _norm(a.get("fio")).lower() == _norm(b.get("fio")).lower()
-        and _norm(a.get("birth_date")) == _norm(b.get("birth_date"))
+        and _normalize_birth_date(_norm(a.get("birth_date"))) == _normalize_birth_date(_norm(b.get("birth_date")))
     )
 
 
@@ -194,13 +209,39 @@ async def _get_patient_id_from_soap(patient: Dict[str, Any], phone: str) -> Opti
     }
     try:
         timeout = aiohttp.ClientTimeout(total=15)
+        _log_mis_io(
+            "mis_get_patient_info_request",
+            endpoint=SOAP_URL,
+            soap_action="GetPatientInfo",
+            patient_fio=_norm(patient.get("fio")),
+            payload=xml,
+        )
         async with aiohttp.ClientSession() as session:
             async with session.post(SOAP_URL, data=xml.encode("utf-8"), headers=headers, timeout=timeout) as resp:
                 text = await resp.text()
+                _log_mis_io(
+                    "mis_get_patient_info_response",
+                    endpoint=SOAP_URL,
+                    status=resp.status,
+                    patient_fio=_norm(patient.get("fio")),
+                    response=text,
+                )
                 if resp.status < 200 or resp.status >= 300:
                     return None
-                return SoapResponseParser.parse_patient_id(text)
-    except Exception:
+                patient_id = SoapResponseParser.parse_patient_id(text)
+                _log_mis_io(
+                    "mis_get_patient_info_parsed",
+                    patient_fio=_norm(patient.get("fio")),
+                    patient_id=_norm(patient_id),
+                )
+                return patient_id
+    except Exception as e:
+        _log_mis_io(
+            "mis_get_patient_info_error",
+            endpoint=SOAP_URL,
+            patient_fio=_norm(patient.get("fio")),
+            error=str(e),
+        )
         return None
 
 
@@ -210,16 +251,48 @@ async def _fetch_mis_appointments(patient_id: str) -> Tuple[Optional[List[Dict[s
     url = f"{SOAP_URL_PATIENT_ID}?Status=1&PatientID={patient_id}"
     try:
         timeout = aiohttp.ClientTimeout(total=20)
+        _log_mis_io(
+            "mis_informer_request",
+            endpoint=SOAP_URL_PATIENT_ID,
+            full_url=url,
+            patient_id=_norm(patient_id),
+            status=1,
+        )
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=timeout) as resp:
                 if resp.status < 200 or resp.status >= 300:
+                    text = await resp.text()
+                    _log_mis_io(
+                        "mis_informer_response",
+                        endpoint=SOAP_URL_PATIENT_ID,
+                        full_url=url,
+                        patient_id=_norm(patient_id),
+                        status=resp.status,
+                        response=text,
+                    )
                     return None, "mis_unavailable"
                 data = await resp.json()
                 arr = data.get("InformerResult", [])
                 if not isinstance(arr, list):
                     arr = []
+                _log_mis_io(
+                    "mis_informer_response",
+                    endpoint=SOAP_URL_PATIENT_ID,
+                    full_url=url,
+                    patient_id=_norm(patient_id),
+                    status=resp.status,
+                    records_count=len(arr),
+                    response=data,
+                )
                 return arr, None
-    except Exception:
+    except Exception as e:
+        _log_mis_io(
+            "mis_informer_error",
+            endpoint=SOAP_URL_PATIENT_ID,
+            full_url=url,
+            patient_id=_norm(patient_id),
+            error=str(e),
+        )
         return None, "mis_unavailable"
 
 
